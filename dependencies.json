@@ -1,0 +1,16 @@
+{
+  "os_target": "ipados-17.7.11-21H461",
+  "sources": [
+    {"name": "UniXNU", "url": "https://github.com/UniXNU/UniXNU", "commit": "04b4e558bcded5213c2d802984862dc062f28257", "role": "Build driver, profiles, prelink, menu and UEFI package"},
+    {"name": "UniXNU-marble", "url": "https://github.com/MiLacy/UniXNU-marble", "commit": "78f4e7bf00e88129f8b6ef5680d81770d386832d", "role": "Board baseline; apply board-runtime-overlay.patch"},
+    {"name": "UniXNU-sm7475-common", "url": "https://github.com/MiLacy/UniXNU-sm7475-common", "commit": "fc78deda27304248186fec2320c5678c45d8e431", "role": "SoC feed, acquired by UniXNU resolver"},
+    {"name": "Mu-Silicium-marble", "url": "https://github.com/chibishizuku/Mu-Silicium-marble", "commit": "fc9e410d025cd9bd8cc3af7cdd450761e8ab6429", "role": "Historical firmware source baseline; customized RAM carrier integration is not exported here"},
+    {"name": "bundled Mu_Basecore", "commit": "df9560579f9580d808937c716304d8fe4f87f47b", "role": "Bundled firmware base; do not substitute another declared feed"},
+    {"name": "XNU feed", "commit": "d8b80295118ef25ac3a784134bcf95cd8e88109f", "role": "Resolved public XNU source; reference its upstream through UniXNU feed definitions"},
+    {"name": "LLVM target toolchain", "url": "https://github.com/llvm/llvm-project", "commit": "58c46bae21181fb4240cf964461bea738d96d50e", "observed_compiler_major": 24, "role": "Actual kernel compiler; not the host-test compiler"}
+  ],
+  "tool_versions": {"cctools": "1030.6.3-ld64-956.6", "iig_commit": "ea6d147d668ca15d490da638012243fcd705f30d", "lzfse_commit": "e634ca58b4821d9f3d560cdc6df5dec02ffc93fd", "observed_host_clang_major": 21},
+  "private_inputs": "Obtain your own legally accessible matched Apple kernel cache, trust data and restore resources; not bundled, linked for redistribution, or fetched by this repository.",
+  "research_only": {"UniXNU_27_commit": "de46854a254e93b47c0210487a4bbc9f3d8661ae", "device_boot_claim": false},
+  "source_of_pins": "Preserved local source/provenance records; remote availability was not revalidated during this export."
+}

@@ -1,0 +1,22 @@
+# Board XNU patches, one path per line in application order.
+
+marble-virtual-timer-only.patch
+marble-decmpfs-delay.patch
+marble-exec-panic-evidence.patch
+marble-md0-blocksize.patch
+marble-md0-force4096.patch
+marble-root-unverified.patch
+native-display-personality.patch
+
+marble-ram-apfs-diagnostic.patch
+marble-ram-apfs-ready.patch
+marble-ram-expr-exec.patch
+marble-ram-expr-fd-safety.patch
+marble-ram-expr-trace.patch
+marble-stdio-lifecycle.patch
+marble-stdio-thread-state-decl.patch
+marble-stdio-child.patch
+marble-launchd-entry.patch
+marble-launchd-stdio.patch
+marble-launchd-bootstrap.patch
+marble-launchd-bootstrap-errors.patch

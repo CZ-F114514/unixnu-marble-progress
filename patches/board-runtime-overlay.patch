@@ -1,0 +1,2139 @@
+--- a/board.toml
++++ b/board.toml
+@@ -1,7 +1,7 @@
+ schema_version = 2
+ 
+ [board]
+-name = "marble"
++name = "marble-ram-apfs-diagnostic"
+ soc = "SM7475"
+ soc_source = "sm7475"
+ os_profile = "ipados-17.7.11-21H461"
+@@ -9,7 +9,7 @@
+ kit = "marble"
+ 
+ [components]
+-# First bring-up selection: platform expert, CPU/GIC, source crypto, UFS,
++# Offline console selection: platform expert, CPU/GIC, source crypto, RAM block,
+ # prelink and the UEFI loader. GopFramebuffer is selected for the display
+ # path but stays disabled in marble_defconfig until the console boot is
+ # established on hardware.
+@@ -17,17 +17,14 @@
+   "ArmDTPlatform",
+   "ArmCpu",
+   "SoftwareAES",
+-  "ShengUfs",
+   "GopFramebuffer",
+   "XnuPrelink",
+   "DarwinBoot",
+   "QcomGeniSpi",
+-  "VirtioMmioBlock",
+-  "RamBlock",
+ ]
+ 
+ [kernel]
+-defconfig = "marble_defconfig"
++defconfig = "marble-ram-apfs_defconfig"
+ config_fragments = ["arch:configs/common.config", "soc:configs/sm7475.config", "os:configs/ipados.config"]
+ patch_series = ["arch:patches/xnu/series", "soc:patches/xnu/series", "os:patches/xnu/series", "device:patches/xnu/series"]
+ archives = [
+@@ -36,20 +33,11 @@
+   "component:ArmDTPlatform",
+   "component:ArmCpu",
+   "component:SoftwareAES",
+-  "component:ShengUfs",
+-  "build-storage-bindings.py",
+-  "component:VirtioMmioBlock",
+-  "storage-bindings.py --component NativeVirtioBlock --archive libVirtioMmioBlock.a --directory build/virtio-mmio-block --subset",
+-  "build-arm-driver.py NativeVirtioBlock --verified-root --verified-root-bundle",
+-  "storage-bindings.py --component NativeVirtioBlock --archive libVirtioMmioBlock.a --directory build/virtio-mmio-block-verified-bundle --subset",
+-  "component:RamBlock",
+-  "storage-bindings.py --component NativeRamBlock --archive libRamBlock.a --directory build/ram-block --subset",
+   "build-software-aes-bindings.py",
+   "build-marble-stubs.py",
+   "build-mockfs-fixture.py",
+   "build-libpthread-kernel.py",
+   "build-platform-power.py",
+-  "build-marble-unverified-root.py",
+   "build-boot-progress.py",
+   "build-gop-framebuffer.py",
+ ]
+@@ -63,10 +51,9 @@
+ dsc = "Platforms/Xiaomi/marblePkg/marble.dsc"
+ fd = "Build/marblePkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
+ # The vendor modules in the Mu-Silicium checkout are already initialized.
+-submodules = ["Common/Mu", "Common/Mu_OEM_Sample", "Silicium-ACPI", "Silicon/Silicium/OpensslPkg/Library/OpensslLib/openssl"]
++submodules = []
+ patches = [
+   "Resources/MuPatches/Auth-Service.patch",
+-  "Resources/MuPatches/Boot-Manager.patch",
+   "Resources/MuPatches/Timer.patch",
+   "Resources/MuPatches/Usb-Bus.patch",
+ ]
+@@ -95,13 +82,14 @@
+ 
+ [payload]
+ volume = "MARBLEESP"
+-size_mib = 160
++size_mib = 64
++timeout = -1
++tools = true
+ loader = "firmware"
+ title = "UniXNU marble"
+ panic_screen = true
+-# Owner-verified root on the userdata tail, with the SystemOS cache/union and
+-# the ephemeral Data seed. See docs/REAL-DEVICE-TESTS.md.
+-kernel_args = ["-v", "serial=3", "debug=0x14e", "cpus=8", "native-ufs-stream=0xe0", "native-ufs-smmu-takeover=1", "native-ufs-root=1", "native-ufs-root-lba=59589627", "native-ufs-root-blocks=2290688", "sheng-pmgr=2", "sheng-disable-jobs=com.apple.fairplayd.A2,com.apple.bluetoothd,com.apple.passd", "-no_slto_panic"]
++# Console-only: no root, Data seed, GPU addon, or device partition geometry.
++kernel_args = ["-v", "serial=3", "debug=0x14e", "cpus=1", "sheng-pmgr=2", "rd=md0", "offline-apfs-load=1", "marble-apfs-diag=1"]
+ 
+ # kern.hv_vmm_present=1: watchdogd treats the machine as a VM and exits 0 when
+ # the Apple IOWatchdog service is absent (marble has no wdt,s5l8960x node);
+@@ -110,25 +98,17 @@
+ [adt.defaults.u32]
+ vmm-present = 1
+ 
+-# Development boot-set identity for the unverified tail root. launchd's
+-# mount -P 1 needs a 48-byte /chosen/boot-manifest-hash; without a verified-root
+-# bundle there is no owner manifest to publish. This is an opaque bring-up
+-# identity (SHA-384 of the domain string), not an Apple or owner signature.
+-[adt.chosen.bytes]
+-boot-manifest-hash = "ccdc24fc882151416af5794568f0f32f7b3878572e6c8b3520b0690763ef6bb63a34c055f783af09d38ecd1c679196c6"
++# Development seed is explicit and does not represent the device identity.
+ 
+ [payload.adt]
+ chip_id = "207"
+ owned_memory_size = "0x100000000"
+-root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
+ packed_data_ramdisk = true
+ unique_chip_id = "required"
+ ipad_identity = true
+ 
+-# Android boot image v0: the fastboot boot path on marble does not reliably
+-# load the v4 ramdisk. The kernel lands at 0x80008000 and the 160 MiB payload
+-# at 0xA8000000-0xB2000000, above the PIL reservation at 0x85200000 and below
+-# the display reservation at 0xB8000000.
++# Requested Android v0 addresses; actual stock ABL loading remains unverified.
++# The final image inspector records the header fields and overlap calculations.
+ [bootimg.image]
+ base = 0x80000000
+ kernel_offset = 0x8000
+@@ -139,20 +119,14 @@
+ 
+ # The bootloader may not rewrite /chosen for a fastboot boot image. Keep the
+ # initrd range in the appended DTB equal to the v0 header's ramdisk address.
++
++# No UFS geometry or persistent root is used by this console profile.
++
++# Requested RAM payload range, matching the v0 header and exact image size.
++# This is a packaging contract; actual ABL loading must be confirmed from logs.
+ [[bootimg.dtb_node]]
+ path = "/chosen"
+ props = [
+-  { name = "linux,initrd-start", type = "x", value = "0xA8000000" },
+-  { name = "linux,initrd-end", type = "x", value = "0xB2000000" },
++  { name = "linux,initrd-start", type = "x", value = 0xA8000000 },
++  { name = "linux,initrd-end", type = "x", value = 0xAC000000 },
+ ]
+-
+-# Measured on the phone with the read-only UFS probe (2026-10-31):
+-# GPT entry "userdata" on LUN 0, 4096-byte LBAs, 224.2 GiB.
+-[userdata]
+-first_lba = 0x2f6a00
+-last_lba = 0x3b037fa
+-lba_bytes = 4096
+-windows = [
+-  { name = "OS", component = "OS" },
+-  { name = "SystemOS", component = "Cryptex1,SystemOS" },
+-]
+--- /dev/null
++++ b/configs/marble-ram-apfs_defconfig
+@@ -0,0 +1,35 @@
++# First-console kernel for marble: platform expert, CPU/GIC, timer, PMGR and
++# the XNU framebuffer console only. No UFS, root policy, verified-root archive,
++# Data seed or display stack, so an IPSW + trust cache is enough to reach XNU.
++CONFIG_XNU_BUILD_ARCHIVES=y
++CONFIG_XNU_ARM_DT_PLATFORM=y
++CONFIG_XNU_ARMCPU=y
++CONFIG_XNU_SOURCE_CORECRYPTO14=y
++CONFIG_XNU_SOURCE_PTHREAD=y
++CONFIG_XNU_CRYPTO_BOOTSTRAP="prelinked"
++CONFIG_XNU_NATIVE_AES=y
++CONFIG_XNU_NATIVE_ARCH_TIMER=y
++CONFIG_XNU_NATIVE_PAN=y
++CONFIG_XNU_NATIVE_UFS=n
++CONFIG_XNU_NATIVE_UFS_FULL=n
++CONFIG_XNU_SHENG_PMGR=y
++CONFIG_XNU_DT_PANIC_REGION=y
++CONFIG_XNU_ARMVIRT_PLATFORM=n
++CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n
++CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
++CONFIG_XNU_NATIVE_ADRENO=n
++CONFIG_XNU_EXTRA_LD_ARCHIVES=""
++
++CONFIG_XNU_VERIFIED_ROOT_PROBE=n
++CONFIG_XNU_OWNER_ROOT_AUDIT=n
++CONFIG_XNU_OWNER_ROOT_TRUST=n
++CONFIG_XNU_NATIVE_VIRTIO_BLOCK=n
++CONFIG_XNU_OWNER_CACHE_MOUNT=n
++CONFIG_XNU_OWNER_CACHE_STARTUP=n
++CONFIG_XNU_OWNER_BOOT_MANIFEST=n
++CONFIG_XNU_OWNER_UNION_SYSTEMOS=n
++CONFIG_XNU_OWNER_DATA_MOUNT=n
++CONFIG_XNU_NATIVE_RAM_BLOCK=n
++CONFIG_XNU_VERIFIED_ROOT_ARCHIVE=""
++CONFIG_XNU_NATIVE_VIRTIO_BLOCK_ARCHIVE=""
++CONFIG_XNU_BOOT_PROGRESS=n
+--- a/dts/marble.dts
++++ b/dts/marble.dts
+@@ -51,5 +51,5 @@
+ &cpu6 { unixnu,cluster-type = "P"; };
+ &cpu7 { unixnu,cluster-type = "P"; };
+ 
+-&ufs { status = "okay"; };
+-&ufsphy { status = "okay"; };
++/delete-node/ &ufs;
++/delete-node/ &ufsphy;
+--- /dev/null
++++ b/patches/xnu/marble-launchd-bootstrap-errors.patch
+@@ -0,0 +1,256 @@
++--- a/bsd/kern/kern_exec.c
+++++ b/bsd/kern/kern_exec.c
++@@ -8243,31 +8243,38 @@
++ }
++ 
++ 
++-/* DEVELOPMENT-only RAM bootstrap observation. No handler/return policy changes. */
+++/* DEVELOPMENT-only bounded RAM bootstrap observer; no native return policy changes. */
++ struct marble_ld_event {
++  uint64_t pc,lr,slot0,slot1;
++  unsigned sequence,generation,code,effective,kind,phase,slots_read,returned;
++  unsigned path_attempted,path_cleaned;int path_error;char path[64];
++ };
+++struct marble_ld_sysctl {
+++ unsigned sampled,namelen,mib_count,mib_truncated;
+++ int mib_error,pre_error,post_error;unsigned oldlen_present;
+++ int32_t mib[8];uint64_t oldptr,oldlenp,newptr,newlen,pre_len,post_len;
+++};
+++struct marble_ld_pending {struct marble_ld_event event;struct marble_ld_sysctl sysctl;};
++ struct marble_ld_bresult {struct marble_ld_event event;int error,r0,r1;};
++ struct marble_ld_dup {uint64_t lr;unsigned sequence,generation,from,to;int error,r0,r1;};
+++struct marble_ld_error {unsigned sequence,code,effective;int error;uint64_t slot0,slot1;unsigned path_flags;int path_error;char path[24];};
++ struct marble_ld_view {
++- unsigned enabled,budget,limit,uuid_ok,generation,total,armed,ndup,bpre,bret,lost,errors,has_first;
+++ unsigned enabled,budget,limit,uuid_ok,generation,total,armed,ndup,bpre,bret,lost,errors,has_first,nerrors;
++  uint64_t header,dyld,start,end;
++- struct marble_ld_dup dup[3];
++- struct marble_ld_bresult post[4],first;
+++ struct marble_ld_dup dup[3];struct marble_ld_bresult post[4],first;
+++ struct marble_ld_sysctl first_sysctl;struct marble_ld_error error[16];
++ };
++-struct marble_ld_state {struct marble_ld_view v;struct marble_ld_event pending[8];};
+++struct marble_ld_state {struct marble_ld_view v;struct marble_ld_pending pending[8];};
++ static struct marble_ld_state marble_ld;
++ static LCK_SPIN_DECLARE(marble_ld_lock, &proc_lck_grp);
++ static void
++ marble_ld_begin(void)
++ {
++- int n=4096,mode=0,limit=16;
+++ int n=4096,mode=0,limit=64;
++  PE_parse_boot_argn("marble-launchd-budget",&n,sizeof(n));
++  PE_parse_boot_argn("marble-launchd-follow",&mode,sizeof(mode));
++  PE_parse_boot_argn("marble-bootstrap-budget",&limit,sizeof(limit));
++- if(n<1 || n>4096 || mode!=2 || limit<1 || limit>64) panic("LD BOOT invalid budget/mode/limit %d/%d/%d",n,mode,limit);
+++ if(n<1 || n>4096 || mode!=3 || limit<1 || limit>256) panic("LD ERR invalid budget/mode/limit %d/%d/%d",n,mode,limit);
++  lck_spin_lock(&marble_ld_lock);bzero(&marble_ld,sizeof(marble_ld));
++  marble_ld.v.enabled=1;marble_ld.v.budget=(unsigned)n;marble_ld.v.limit=(unsigned)limit;
++  lck_spin_unlock(&marble_ld_lock);
++@@ -8293,38 +8300,55 @@
++ static void
++ marble_ld_print_event(char *message,size_t cap,size_t *used,const char *tag,const struct marble_ld_event *e)
++ {
++- marble_stdio_append(message,cap,used,"%s #%u g%u %u/%u p%u n%u a=%llx/%llx\n",tag,e->sequence,e->generation,e->code,e->effective,e->phase,e->slots_read,(unsigned long long)e->slot0,(unsigned long long)e->slot1);
++- marble_stdio_append(message,cap,used," pc=%llx lr=%llx k%u\n",(unsigned long long)e->pc,(unsigned long long)e->lr,e->kind);
++- if(e->path_attempted) marble_stdio_append(message,cap,used," path e%d c%u t%u %.40s\n",e->path_error,e->path_cleaned,(unsigned)(strlen(e->path)>40),e->path);
+++ marble_stdio_append(message,cap,used,"%s #%u g%u %u/%u a=%llx/%llx\n",tag,e->sequence,e->generation,e->code,e->effective,(unsigned long long)e->slot0,(unsigned long long)e->slot1);
+++ marble_stdio_append(message,cap,used," pc=%llx lr=%llx k%u n%u\n",(unsigned long long)e->pc,(unsigned long long)e->lr,e->kind,e->slots_read);
++ }
++ static void
++ marble_ld_dump(const struct marble_ld_view *v,unsigned stop,const struct marble_ld_event *cause)
++ {
++- uint64_t center=cause->kind==2?cause->pc:cause->lr;uint32_t sig[8]={0};int copied=EINVAL;
+++ const struct marble_ld_event *finger=v->has_first?&v->first.event:cause;
+++ uint64_t center=finger->kind==2?finger->pc:finger->lr;uint32_t sig[8]={0};int copied=EINVAL;
++  if(center>=4096 && center<UINT64_C(0x0000ffffffffffff) && !(center&3)) copied=copyin((user_addr_t)(center-16),sig,sizeof(sig));
++  char message[2048]={0};size_t used=0;
++- marble_stdio_append(message,sizeof(message),&used,"LD BOOT n=%u pre=%u ret=%u limit=%u stop=%u uuid=%u gen=%u\n",v->total,v->bpre,v->bret,v->limit,stop,v->uuid_ok,v->generation);
++- marble_stdio_append(message,sizeof(message),&used,"main=%llx dyld=%llx text=%llx..%llx\n",(unsigned long long)v->header,(unsigned long long)v->dyld,(unsigned long long)v->start,(unsigned long long)v->end);
++- marble_stdio_append(message,sizeof(message),&used,"armed=%u dup=%u lost=%u errors=%u show=last2/4\n",v->armed,v->ndup,v->lost,v->errors);
+++ marble_stdio_append(message,sizeof(message),&used,"LD ERR n=%u pre=%u ret=%u limit=%u stop=%u\n",v->total,v->bpre,v->bret,v->limit,stop);
+++ marble_stdio_append(message,sizeof(message),&used,"u%u g%u arm%u dup%u lost%u errors%u kept=%u over=%u\n",v->uuid_ok,v->generation,v->armed,v->ndup,v->lost,v->errors,v->nerrors,v->errors-v->nerrors);
+++ marble_stdio_append(message,sizeof(message),&used,"main=%llx text=%llx..%llx d%llx\n",(unsigned long long)v->header,(unsigned long long)v->start,(unsigned long long)v->end,(unsigned long long)v->dyld);
++  for(unsigned i=0;i<v->ndup && i<3;i++) {
++   const struct marble_ld_dup *d=&v->dup[i];
++-  marble_stdio_append(message,sizeof(message),&used,"D%u #%u %u>%u e%d r%d/%d\n",i,d->sequence,d->from,d->to,d->error,d->r0,d->r1);
+++  marble_stdio_append(message,sizeof(message),&used,"D%u#%u %u>%u e%d r%d/%d;",i,d->sequence,d->from,d->to,d->error,d->r0,d->r1);
++  }
+++ if(v->ndup) marble_stdio_append(message,sizeof(message),&used,"\n");
++  marble_ld_print_event(message,sizeof(message),&used,"CAUSE",cause);
++- marble_stdio_append(message,sizeof(message),&used,"center=%llx copy=%d sig",(unsigned long long)center,copied);
++- for(unsigned i=0;i<8;i++) marble_stdio_append(message,sizeof(message),&used," %08x",sig[i]);
++- marble_stdio_append(message,sizeof(message),&used,"\n");
+++ marble_stdio_append(message,sizeof(message),&used,"sig %s center=%llx copy=%d\n",v->has_first?"FIRST":"CAUSE",(unsigned long long)center,copied);
+++ for(unsigned i=0;i<8;i++) marble_stdio_append(message,sizeof(message),&used,"%08x%s",sig[i],i==7?"\n":" ");
++  if(v->has_first) {
++-  marble_stdio_append(message,sizeof(message),&used,"FIRST e%d r%08x/%08x\n",v->first.error,(unsigned)v->first.r0,(unsigned)v->first.r1);
+++  marble_stdio_append(message,sizeof(message),&used,"FIRST e%d r%x/%x\n",v->first.error,(unsigned)v->first.r0,(unsigned)v->first.r1);
++   marble_ld_print_event(message,sizeof(message),&used,"F",&v->first.event);
+++  if(v->first.event.effective==SYS_sysctl) {
+++   const struct marble_ld_sysctl *s=&v->first_sysctl;
+++   marble_stdio_append(message,sizeof(message),&used,"SC a6=%u n=%u got=%u t%u me=%d\n",s->sampled,s->namelen,s->mib_count,s->mib_truncated,s->mib_error);
+++   for(unsigned i=0;i<s->mib_count;i++) {
+++    if(!(i%4)) marble_stdio_append(message,sizeof(message),&used,"M%u",i);
+++    marble_stdio_append(message,sizeof(message),&used," %d",s->mib[i]);
+++    if(i%4==3 || i+1==s->mib_count) marble_stdio_append(message,sizeof(message),&used,"\n");
+++   }
+++   marble_stdio_append(message,sizeof(message),&used,"OLD p%u ptr=%llx lenp=%llx\n",s->oldlen_present,(unsigned long long)s->oldptr,(unsigned long long)s->oldlenp);
+++   marble_stdio_append(message,sizeof(message),&used,"LEN pre=%llu e%d\n",(unsigned long long)s->pre_len,s->pre_error);
+++   marble_stdio_append(message,sizeof(message),&used,"LEN post=%llu e%d\n",(unsigned long long)s->post_len,s->post_error);
+++   marble_stdio_append(message,sizeof(message),&used,"NEW ptr=%llx len=%llu\n",(unsigned long long)s->newptr,(unsigned long long)s->newlen);
+++  }
++  }
++- unsigned first=v->bret>2?v->bret-1:1;
++- for(unsigned n=first;n<=v->bret;n++) {
++-  const struct marble_ld_bresult *r=&v->post[(n-1)%4];
++-  marble_stdio_append(message,sizeof(message),&used,"R%u e%d r%08x/%08x\n",n,r->error,(unsigned)r->r0,(unsigned)r->r1);
++-  marble_ld_print_event(message,sizeof(message),&used,"B",&r->event);
+++ for(unsigned i=0;i<v->nerrors && i<16;i++) {
+++  const struct marble_ld_error *e=&v->error[i];
+++  marble_stdio_append(message,sizeof(message),&used,"E%u #%u s%u/%u e%d",i+1,e->sequence,e->code,e->effective,e->error);
+++  if(e->path_flags&1) marble_stdio_append(message,sizeof(message),&used," P%d%c:%.20s",e->path_error,e->path_flags&2?'C':'R',e->path);
+++  marble_stdio_append(message,sizeof(message),&used,"\n");
++  }
++- marble_stdio_append(message,sizeof(message),&used,"7=post;2/3/6/9/10=pre;5=dupErr;C-return only.");
+++ if(v->bret) {
+++  const struct marble_ld_bresult *last=&v->post[(v->bret-1)%4];
+++  marble_stdio_append(message,sizeof(message),&used,"LAST #%u e%d r%x/%x\n",last->event.sequence,last->error,(unsigned)last->r0,(unsigned)last->r1);
+++ }
+++ marble_stdio_append(message,sizeof(message),&used,"7post;2/3/6/9/10pre;5dupErr;Pprefix;C-return only");
++  panic("%s",message);
++ }
++ static unsigned
++@@ -8332,71 +8356,98 @@
++ {
++  return code==SYS_open || code==SYS_open_nocancel || code==SYS_access || code==SYS_chdir || code==SYS_stat64 || code==SYS_lstat64 || code==SYS_getattrlist || code==SYS_readlink;
++ }
+++static void
+++marble_ld_sysctl_pre(struct marble_ld_sysctl *s,unsigned argc,const void *args)
+++{
+++ if(argc<6) return;
+++ uint64_t slots[6];memcpy(slots,args,sizeof(slots));
+++ s->sampled=1;s->namelen=(uint32_t)slots[1];s->mib_count=s->namelen>8?8:s->namelen;s->mib_truncated=s->namelen>8;
+++ s->oldptr=slots[2];s->oldlenp=slots[3];s->newptr=slots[4];s->newlen=slots[5];s->oldlen_present=s->oldlenp!=0;
+++ if(s->mib_count) s->mib_error=copyin((user_addr_t)slots[0],s->mib,s->mib_count*sizeof(s->mib[0]));
+++ if(s->oldlen_present) s->pre_error=copyin((user_addr_t)s->oldlenp,&s->pre_len,sizeof(s->pre_len));
+++}
++ uint64_t
++ marble_ld_syscall(proc_t p,arm_saved_state_t *s,unsigned code,unsigned effective,unsigned argc,const void *args,unsigned reboot_requested)
++ {
++  if(p!=initproc || p!=current_proc() || proc_getpid(p)!=1 || !is_saved_state64(s)) return 0;
++- struct marble_ld_event event={.pc=get_saved_state_pc(s),.lr=get_saved_state_lr(s),.code=code,.effective=effective};
++- event.slots_read=argc>2?2:argc;
++- if(event.slots_read) {uint64_t slots[2]={0};memcpy(slots,args,event.slots_read*sizeof(uint64_t));event.slot0=slots[0];event.slot1=slots[1];}
+++ struct marble_ld_pending record={0};struct marble_ld_event *event=&record.event;
+++ event->pc=get_saved_state_pc(s);event->lr=get_saved_state_lr(s);event->code=code;event->effective=effective;
+++ event->slots_read=argc>2?2:argc;
+++ if(event->slots_read) {uint64_t slots[2]={0};memcpy(slots,args,event->slots_read*sizeof(uint64_t));event->slot0=slots[0];event->slot1=slots[1];}
++  struct marble_ld_view snapshot;unsigned stop=0;uint64_t ticket=0;
++  lck_spin_lock(&marble_ld_lock);
++  struct marble_ld_view *v=&marble_ld.v;
++  if(v->enabled && v->generation) {
++   if(v->total<0xffffffffu) v->total++;
++-  event.sequence=v->total;event.generation=v->generation;
+++  event->sequence=v->total;event->generation=v->generation;
++   if(v->uuid_ok) {
++-   if(event.lr>=v->start && event.lr<v->end) event.kind=1;
++-   else if(event.pc>=v->start && event.pc<v->end) event.kind=2;
+++   if(event->lr>=v->start && event->lr<v->end) event->kind=1;
+++   else if(event->pc>=v->start && event->pc<v->end) event->kind=2;
++   }
++-  event.phase=v->armed;
++-  if(event.phase && v->bpre<0xffffffffu) v->bpre++;
++-  marble_ld.pending[(event.sequence-1)%8]=event;
++-  stop=reboot_requested?3:(code==SYS_exit?6:(!v->uuid_ok?10:(v->total>=v->budget?2:(event.phase && v->bpre>=v->limit*4?9:0))));
++-  if(event.phase || (event.kind && code==SYS_dup2 && effective==SYS_dup2 && event.slots_read==2)) ticket=((uint64_t)event.generation<<32)|event.sequence;
+++  event->phase=v->armed;
+++  if(event->phase && v->bpre<0xffffffffu) v->bpre++;
+++  marble_ld.pending[(event->sequence-1)%8]=record;
+++  stop=reboot_requested?3:(code==SYS_exit?6:(!v->uuid_ok?10:(v->total>=v->budget?2:(event->phase && v->bpre>=v->limit*4?9:0))));
+++  if(event->phase || (event->kind && code==SYS_dup2 && effective==SYS_dup2 && event->slots_read==2)) ticket=((uint64_t)event->generation<<32)|event->sequence;
++   if(stop) snapshot=*v;
++  }
++  lck_spin_unlock(&marble_ld_lock);
++- if(event.phase && event.slots_read && marble_ld_path_call(event.effective)) {
++-  size_t copied=0;event.path_attempted=1;
++-  event.path_error=copyinstr((user_addr_t)event.slot0,event.path,sizeof(event.path),&copied);
++-  event.path[sizeof(event.path)-1]=0;
++-  for(unsigned i=0;i<sizeof(event.path) && event.path[i];i++) if((unsigned char)event.path[i]<32 || (unsigned char)event.path[i]>126) {event.path[i]='?';event.path_cleaned=1;}
+++ if(event->phase && event->slots_read && marble_ld_path_call(event->effective)) {
+++  size_t copied=0;event->path_attempted=1;
+++  event->path_error=copyinstr((user_addr_t)event->slot0,event->path,sizeof(event->path),&copied);event->path[sizeof(event->path)-1]=0;
+++  for(unsigned i=0;i<sizeof(event->path) && event->path[i];i++) if((unsigned char)event->path[i]<32 || (unsigned char)event->path[i]>126) {event->path[i]='?';event->path_cleaned=1;}
+++ }
+++ if(event->phase && event->effective==SYS_sysctl) marble_ld_sysctl_pre(&record.sysctl,argc,args);
+++ if(event->phase) {
++   lck_spin_lock(&marble_ld_lock);
++-  struct marble_ld_event *pending=&marble_ld.pending[(event.sequence-1)%8];
++-  if(marble_ld.v.generation==event.generation && pending->sequence==event.sequence && pending->generation==event.generation && !pending->returned) *pending=event;
+++  struct marble_ld_pending *pending=&marble_ld.pending[(event->sequence-1)%8];
+++  if(marble_ld.v.generation==event->generation && pending->event.sequence==event->sequence && pending->event.generation==event->generation && !pending->event.returned) *pending=record;
++   lck_spin_unlock(&marble_ld_lock);
++  }
++- if(stop) marble_ld_dump(&snapshot,stop,&event);
+++ if(stop) marble_ld_dump(&snapshot,stop,event);
++  return ticket;
++ }
++ void
++ marble_ld_return(proc_t p,uint64_t ticket,int error,int r0,int r1)
++ {
++  if(!ticket || p!=initproc || p!=current_proc() || proc_getpid(p)!=1) return;
++- unsigned sequence=(unsigned)ticket,generation=(unsigned)(ticket>>32),stop=0;
+++ unsigned sequence=(unsigned)ticket,generation=(unsigned)(ticket>>32),stop=0,valid=0;
++  if(!sequence) return;
++- struct marble_ld_view snapshot;struct marble_ld_event cause={0};
+++ struct marble_ld_view snapshot;struct marble_ld_pending record={0};
++  lck_spin_lock(&marble_ld_lock);
++- struct marble_ld_view *v=&marble_ld.v;struct marble_ld_event *e=&marble_ld.pending[(sequence-1)%8];
+++ struct marble_ld_view *v=&marble_ld.v;struct marble_ld_pending *pending=&marble_ld.pending[(sequence-1)%8];
+++ struct marble_ld_event *e=&pending->event;
++  if(!v->enabled || !v->uuid_ok || generation!=v->generation || e->sequence!=sequence || e->generation!=generation || e->returned) {
++   if(v->lost<0xffffffffu) v->lost++;
++- } else {
++-  e->returned=1;cause=*e;
++-  if(e->phase) {
++-   if(v->bret<0xffffffffu) v->bret++;
++-   struct marble_ld_bresult *r=&v->post[(v->bret-1)%4];r->event=*e;r->error=error;r->r0=r0;r->r1=r1;
++-   if(error) {if(v->errors<0xffffffffu) v->errors++;if(!v->has_first) {v->first=*r;v->has_first=1;}}
++-   if(v->bret>=v->limit) stop=7;
++-  } else if(e->kind && e->code==SYS_dup2 && e->effective==SYS_dup2 && e->slots_read==2 && v->ndup<3) {
++-   struct marble_ld_dup *d=&v->dup[v->ndup++];
++-   d->sequence=e->sequence;d->generation=e->generation;d->from=(uint32_t)e->slot0;d->to=(uint32_t)e->slot1;d->lr=e->lr;d->error=error;d->r0=r0;d->r1=r1;
++-   if(error) stop=5;else if(v->ndup==3) v->armed=1;
+++ } else {e->returned=1;record=*pending;valid=1;}
+++ lck_spin_unlock(&marble_ld_lock);
+++ if(!valid) return;
+++ if(record.sysctl.sampled && record.sysctl.oldlen_present) record.sysctl.post_error=copyin((user_addr_t)record.sysctl.oldlenp,&record.sysctl.post_len,sizeof(record.sysctl.post_len));
+++ lck_spin_lock(&marble_ld_lock);
+++ v=&marble_ld.v;e=&record.event;
+++ if(!v->enabled || !v->uuid_ok || generation!=v->generation) {
+++  if(v->lost<0xffffffffu) v->lost++;
+++ } else if(e->phase) {
+++  if(v->bret<0xffffffffu) v->bret++;
+++  struct marble_ld_bresult *r=&v->post[(v->bret-1)%4];r->event=*e;r->error=error;r->r0=r0;r->r1=r1;
+++  if(error) {
+++   if(v->errors<0xffffffffu) v->errors++;
+++   if(!v->has_first) {v->first=*r;v->first_sysctl=record.sysctl;v->has_first=1;}
+++   if(v->nerrors<16) {
+++    struct marble_ld_error *row=&v->error[v->nerrors++];
+++    row->sequence=sequence;row->code=e->code;row->effective=e->effective;row->error=error;row->slot0=e->slot0;row->slot1=e->slot1;
+++    row->path_flags=e->path_attempted|(e->path_cleaned<<1);row->path_error=e->path_error;memcpy(row->path,e->path,sizeof(row->path)-1);row->path[sizeof(row->path)-1]=0;
+++   }
++   }
++-  if(stop) snapshot=*v;
+++  if(v->bret>=v->limit) stop=7;
+++ } else if(e->kind && e->code==SYS_dup2 && e->effective==SYS_dup2 && e->slots_read==2 && v->ndup<3) {
+++  struct marble_ld_dup *d=&v->dup[v->ndup++];
+++  d->sequence=e->sequence;d->generation=e->generation;d->from=(uint32_t)e->slot0;d->to=(uint32_t)e->slot1;d->lr=e->lr;d->error=error;d->r0=r0;d->r1=r1;
+++  if(error) stop=5;else if(v->ndup==3) v->armed=1;
++  }
+++ if(stop) snapshot=*v;
++  lck_spin_unlock(&marble_ld_lock);
++- if(stop) marble_ld_dump(&snapshot,stop,&cause);
+++ if(stop) marble_ld_dump(&snapshot,stop,&record.event);
++ }
++ 
++ struct marble_pipe_snapshot { int lookup; uint32_t flags; uint64_t id; unsigned same; };
+--- /dev/null
++++ b/patches/xnu/marble-launchd-bootstrap.patch
+@@ -0,0 +1,243 @@
++--- a/bsd/kern/kern_exec.c
+++++ b/bsd/kern/kern_exec.c
++@@ -8243,29 +8243,33 @@
++ }
++ 
++ 
++-/* DEVELOPMENT-only, RAM-only original-launchd call/normal-return observer. */
+++/* DEVELOPMENT-only RAM bootstrap observation. No handler/return policy changes. */
++ struct marble_ld_event {
++- uint64_t pc,lr,a0,arg0,arg1;
++- unsigned sequence,generation,code,effective,kind,returned;
+++ uint64_t pc,lr,slot0,slot1;
+++ unsigned sequence,generation,code,effective,kind,phase,slots_read,returned;
+++ unsigned path_attempted,path_cleaned;int path_error;char path[64];
++ };
++-struct marble_ld_result { struct marble_ld_event event; int error,r0,r1; };
++-struct marble_ld_state {
++- unsigned enabled,budget,follow,uuid_ok,generation,total,completed,lost;
+++struct marble_ld_bresult {struct marble_ld_event event;int error,r0,r1;};
+++struct marble_ld_dup {uint64_t lr;unsigned sequence,generation,from,to;int error,r0,r1;};
+++struct marble_ld_view {
+++ unsigned enabled,budget,limit,uuid_ok,generation,total,armed,ndup,bpre,bret,lost,errors,has_first;
++  uint64_t header,dyld,start,end;
++- struct marble_ld_event event[8];
++- struct marble_ld_result result[3];
+++ struct marble_ld_dup dup[3];
+++ struct marble_ld_bresult post[4],first;
++ };
+++struct marble_ld_state {struct marble_ld_view v;struct marble_ld_event pending[8];};
++ static struct marble_ld_state marble_ld;
++ static LCK_SPIN_DECLARE(marble_ld_lock, &proc_lck_grp);
++ static void
++ marble_ld_begin(void)
++ {
++- int n=1,follow=0;
+++ int n=4096,mode=0,limit=16;
++  PE_parse_boot_argn("marble-launchd-budget",&n,sizeof(n));
++- PE_parse_boot_argn("marble-launchd-follow",&follow,sizeof(follow));
++- if(n<1 || n>4096 || follow<0 || follow>1) panic("LD FOLLOW invalid budget/mode %d/%d",n,follow);
++- lck_spin_lock(&marble_ld_lock);
++- bzero(&marble_ld,sizeof(marble_ld));marble_ld.enabled=1;marble_ld.budget=(unsigned)n;marble_ld.follow=(unsigned)follow;
+++ PE_parse_boot_argn("marble-launchd-follow",&mode,sizeof(mode));
+++ PE_parse_boot_argn("marble-bootstrap-budget",&limit,sizeof(limit));
+++ if(n<1 || n>4096 || mode!=2 || limit<1 || limit>64) panic("LD BOOT invalid budget/mode/limit %d/%d/%d",n,mode,limit);
+++ lck_spin_lock(&marble_ld_lock);bzero(&marble_ld,sizeof(marble_ld));
+++ marble_ld.v.enabled=1;marble_ld.v.budget=(unsigned)n;marble_ld.v.limit=(unsigned)limit;
++  lck_spin_unlock(&marble_ld_lock);
++ }
++ void
++@@ -8277,61 +8281,93 @@
++  uint64_t start=header+5008,end=start+336872;
++  if(header<4096 || header>=UINT64_C(0x0000ffffffffffff) || start<header || end<start || end>=UINT64_C(0x0000ffffffffffff)) valid=0;
++  lck_spin_lock(&marble_ld_lock);
++- if(marble_ld.enabled) {
++-  marble_ld.uuid_ok=valid;marble_ld.header=header;marble_ld.dyld=dyld;
++-  marble_ld.start=start;marble_ld.end=end;marble_ld.completed=0;
++-  bzero(marble_ld.result,sizeof(marble_ld.result));
++-  if(marble_ld.generation<0xffffffffu) marble_ld.generation++;
+++ struct marble_ld_view *v=&marble_ld.v;
+++ if(v->enabled) {
+++  unsigned generation=v->generation<0xffffffffu?v->generation+1:v->generation,budget=v->budget,limit=v->limit;
+++  bzero(&marble_ld,sizeof(marble_ld));v=&marble_ld.v;
+++  v->enabled=1;v->budget=budget;v->limit=limit;v->generation=generation;
+++  v->uuid_ok=valid;v->header=header;v->dyld=dyld;v->start=start;v->end=end;
++  }
++  lck_spin_unlock(&marble_ld_lock);
++ }
++ static void
++-marble_ld_dump(const struct marble_ld_state *snapshot,unsigned stop,unsigned kind,uint64_t center)
++-{
++- uint32_t sig[8]={0};int copy_error=EINVAL;
++- if(center>=4096 && center<UINT64_C(0x0000ffffffffffff) && !(center&3)) copy_error=copyin((user_addr_t)(center-16),sig,sizeof(sig));
+++marble_ld_print_event(char *message,size_t cap,size_t *used,const char *tag,const struct marble_ld_event *e)
+++{
+++ marble_stdio_append(message,cap,used,"%s #%u g%u %u/%u p%u n%u a=%llx/%llx\n",tag,e->sequence,e->generation,e->code,e->effective,e->phase,e->slots_read,(unsigned long long)e->slot0,(unsigned long long)e->slot1);
+++ marble_stdio_append(message,cap,used," pc=%llx lr=%llx k%u\n",(unsigned long long)e->pc,(unsigned long long)e->lr,e->kind);
+++ if(e->path_attempted) marble_stdio_append(message,cap,used," path e%d c%u t%u %.40s\n",e->path_error,e->path_cleaned,(unsigned)(strlen(e->path)>40),e->path);
+++}
+++static void
+++marble_ld_dump(const struct marble_ld_view *v,unsigned stop,const struct marble_ld_event *cause)
+++{
+++ uint64_t center=cause->kind==2?cause->pc:cause->lr;uint32_t sig[8]={0};int copied=EINVAL;
+++ if(center>=4096 && center<UINT64_C(0x0000ffffffffffff) && !(center&3)) copied=copyin((user_addr_t)(center-16),sig,sizeof(sig));
++  char message[2048]={0};size_t used=0;
++- marble_stdio_append(message,sizeof(message),&used,"LD %s n=%u budget=%u stop=%u text=%u uuid=%u gen=%u\n",snapshot->follow?"FOLLOW":"ENTRY",snapshot->total,snapshot->budget,stop,kind,snapshot->uuid_ok,snapshot->generation);
++- marble_stdio_append(message,sizeof(message),&used,"main=%llx dyld=%llx\ntext=%llx..%llx\n",(unsigned long long)snapshot->header,(unsigned long long)snapshot->dyld,(unsigned long long)snapshot->start,(unsigned long long)snapshot->end);
++- unsigned first=snapshot->total>4?snapshot->total-3:1;
++- for(unsigned n=first;n<=snapshot->total;n++) {
++-  const struct marble_ld_event *e=&snapshot->event[(n-1)%8];
++-  marble_stdio_append(message,sizeof(message),&used,"#%u g%u sys%u/%u pc=%llx lr=%llx x0=%llx\n",e->sequence,e->generation,e->code,e->effective,(unsigned long long)e->pc,(unsigned long long)e->lr,(unsigned long long)e->a0);
++-  if(n==0xffffffffu) break;
+++ marble_stdio_append(message,sizeof(message),&used,"LD BOOT n=%u pre=%u ret=%u limit=%u stop=%u uuid=%u gen=%u\n",v->total,v->bpre,v->bret,v->limit,stop,v->uuid_ok,v->generation);
+++ marble_stdio_append(message,sizeof(message),&used,"main=%llx dyld=%llx text=%llx..%llx\n",(unsigned long long)v->header,(unsigned long long)v->dyld,(unsigned long long)v->start,(unsigned long long)v->end);
+++ marble_stdio_append(message,sizeof(message),&used,"armed=%u dup=%u lost=%u errors=%u show=last2/4\n",v->armed,v->ndup,v->lost,v->errors);
+++ for(unsigned i=0;i<v->ndup && i<3;i++) {
+++  const struct marble_ld_dup *d=&v->dup[i];
+++  marble_stdio_append(message,sizeof(message),&used,"D%u #%u %u>%u e%d r%d/%d\n",i,d->sequence,d->from,d->to,d->error,d->r0,d->r1);
++  }
++- marble_stdio_append(message,sizeof(message),&used,"normal dup2 returns=%u lost=%u\n",snapshot->completed,snapshot->lost);
++- for(unsigned i=0;i<snapshot->completed && i<3;i++) {
++-  const struct marble_ld_result *r=&snapshot->result[i];
++-  marble_stdio_append(message,sizeof(message),&used,"D%u #%u g%u from=%llu to=%llu err=%d rv=%d/%d lr=%llx\n",i,r->event.sequence,r->event.generation,(unsigned long long)r->event.arg0,(unsigned long long)r->event.arg1,r->error,r->r0,r->r1,(unsigned long long)r->event.lr);
+++ marble_ld_print_event(message,sizeof(message),&used,"CAUSE",cause);
+++ marble_stdio_append(message,sizeof(message),&used,"center=%llx copy=%d sig",(unsigned long long)center,copied);
+++ for(unsigned i=0;i<8;i++) marble_stdio_append(message,sizeof(message),&used," %08x",sig[i]);
+++ marble_stdio_append(message,sizeof(message),&used,"\n");
+++ if(v->has_first) {
+++  marble_stdio_append(message,sizeof(message),&used,"FIRST e%d r%08x/%08x\n",v->first.error,(unsigned)v->first.r0,(unsigned)v->first.r1);
+++  marble_ld_print_event(message,sizeof(message),&used,"F",&v->first.event);
++  }
++- marble_stdio_append(message,sizeof(message),&used,"center=%llx copy=%d\nsig",(unsigned long long)center,copy_error);
++- for(unsigned i=0;i<8;i++) marble_stdio_append(message,sizeof(message),&used," %08x",sig[i]);
++- marble_stdio_append(message,sizeof(message),&used,"\nstop4=third normal return;5=dup error;1/2/3=pre-handler.\nNormal handler return only; not user resume/services.");
+++ unsigned first=v->bret>2?v->bret-1:1;
+++ for(unsigned n=first;n<=v->bret;n++) {
+++  const struct marble_ld_bresult *r=&v->post[(n-1)%4];
+++  marble_stdio_append(message,sizeof(message),&used,"R%u e%d r%08x/%08x\n",n,r->error,(unsigned)r->r0,(unsigned)r->r1);
+++  marble_ld_print_event(message,sizeof(message),&used,"B",&r->event);
+++ }
+++ marble_stdio_append(message,sizeof(message),&used,"7=post;2/3/6/9/10=pre;5=dupErr;C-return only.");
++  panic("%s",message);
++ }
+++static unsigned
+++marble_ld_path_call(unsigned code)
+++{
+++ return code==SYS_open || code==SYS_open_nocancel || code==SYS_access || code==SYS_chdir || code==SYS_stat64 || code==SYS_lstat64 || code==SYS_getattrlist || code==SYS_readlink;
+++}
++ uint64_t
++-marble_ld_syscall(proc_t p,arm_saved_state_t *s,unsigned code,unsigned effective,const void *args,unsigned reboot_requested)
++-{
++- if(!marble_ld.enabled || p!=initproc || p!=current_proc() || proc_getpid(p)!=1 || !is_saved_state64(s)) return 0;
++- struct marble_ld_event event={.pc=get_saved_state_pc(s),.lr=get_saved_state_lr(s),.a0=get_saved_state_reg(s,0),.code=code,.effective=effective};
++- if(effective==SYS_dup2) { uint64_t slots[2];memcpy(slots,args,sizeof(slots));event.arg0=(uint32_t)slots[0];event.arg1=(uint32_t)slots[1]; }
++- struct marble_ld_state snapshot;unsigned stop=0,kind=0;uint64_t center=event.lr,ticket=0;
+++marble_ld_syscall(proc_t p,arm_saved_state_t *s,unsigned code,unsigned effective,unsigned argc,const void *args,unsigned reboot_requested)
+++{
+++ if(p!=initproc || p!=current_proc() || proc_getpid(p)!=1 || !is_saved_state64(s)) return 0;
+++ struct marble_ld_event event={.pc=get_saved_state_pc(s),.lr=get_saved_state_lr(s),.code=code,.effective=effective};
+++ event.slots_read=argc>2?2:argc;
+++ if(event.slots_read) {uint64_t slots[2]={0};memcpy(slots,args,event.slots_read*sizeof(uint64_t));event.slot0=slots[0];event.slot1=slots[1];}
+++ struct marble_ld_view snapshot;unsigned stop=0;uint64_t ticket=0;
++  lck_spin_lock(&marble_ld_lock);
++- if(marble_ld.generation) {
++-  if(marble_ld.total<0xffffffffu) marble_ld.total++;
++-  event.sequence=marble_ld.total;event.generation=marble_ld.generation;
++-  if(marble_ld.uuid_ok) {
++-   if(event.lr>=marble_ld.start && event.lr<marble_ld.end) kind=1;
++-   else if(event.pc>=marble_ld.start && event.pc<marble_ld.end) {kind=2;center=event.pc;}
+++ struct marble_ld_view *v=&marble_ld.v;
+++ if(v->enabled && v->generation) {
+++  if(v->total<0xffffffffu) v->total++;
+++  event.sequence=v->total;event.generation=v->generation;
+++  if(v->uuid_ok) {
+++   if(event.lr>=v->start && event.lr<v->end) event.kind=1;
+++   else if(event.pc>=v->start && event.pc<v->end) event.kind=2;
++   }
++-  event.kind=kind;marble_ld.event[(event.sequence-1)%8]=event;
++-  stop=(!marble_ld.follow && kind)?1:(reboot_requested?3:(marble_ld.total>=marble_ld.budget?2:0));
++-  if(marble_ld.follow && kind && code==SYS_dup2 && effective==SYS_dup2)
++-   ticket=((uint64_t)event.generation<<32)|event.sequence;
++-  if(stop) snapshot=marble_ld;
+++  event.phase=v->armed;
+++  if(event.phase && v->bpre<0xffffffffu) v->bpre++;
+++  marble_ld.pending[(event.sequence-1)%8]=event;
+++  stop=reboot_requested?3:(code==SYS_exit?6:(!v->uuid_ok?10:(v->total>=v->budget?2:(event.phase && v->bpre>=v->limit*4?9:0))));
+++  if(event.phase || (event.kind && code==SYS_dup2 && effective==SYS_dup2 && event.slots_read==2)) ticket=((uint64_t)event.generation<<32)|event.sequence;
+++  if(stop) snapshot=*v;
++  }
++  lck_spin_unlock(&marble_ld_lock);
++- if(stop) marble_ld_dump(&snapshot,stop,kind,center);
+++ if(event.phase && event.slots_read && marble_ld_path_call(event.effective)) {
+++  size_t copied=0;event.path_attempted=1;
+++  event.path_error=copyinstr((user_addr_t)event.slot0,event.path,sizeof(event.path),&copied);
+++  event.path[sizeof(event.path)-1]=0;
+++  for(unsigned i=0;i<sizeof(event.path) && event.path[i];i++) if((unsigned char)event.path[i]<32 || (unsigned char)event.path[i]>126) {event.path[i]='?';event.path_cleaned=1;}
+++  lck_spin_lock(&marble_ld_lock);
+++  struct marble_ld_event *pending=&marble_ld.pending[(event.sequence-1)%8];
+++  if(marble_ld.v.generation==event.generation && pending->sequence==event.sequence && pending->generation==event.generation && !pending->returned) *pending=event;
+++  lck_spin_unlock(&marble_ld_lock);
+++ }
+++ if(stop) marble_ld_dump(&snapshot,stop,&event);
++  return ticket;
++ }
++ void
++@@ -8340,20 +8376,27 @@
++  if(!ticket || p!=initproc || p!=current_proc() || proc_getpid(p)!=1) return;
++  unsigned sequence=(unsigned)ticket,generation=(unsigned)(ticket>>32),stop=0;
++  if(!sequence) return;
++- struct marble_ld_state snapshot;uint64_t center=0;unsigned kind=0;
+++ struct marble_ld_view snapshot;struct marble_ld_event cause={0};
++  lck_spin_lock(&marble_ld_lock);
++- struct marble_ld_event *e=&marble_ld.event[(sequence-1)%8];
++- if(!marble_ld.follow || !marble_ld.uuid_ok || generation!=marble_ld.generation || e->sequence!=sequence || e->generation!=generation || e->returned) {
++-  if(marble_ld.lost<0xffffffffu) marble_ld.lost++;
++- } else if(marble_ld.completed<3 && e->kind && e->code==SYS_dup2 && e->effective==SYS_dup2) {
++-  struct marble_ld_result *r=&marble_ld.result[marble_ld.completed++];
++-  r->event=*e;r->error=error;r->r0=r0;r->r1=r1;e->returned=1;
++-  stop=error?5:(marble_ld.completed==3?4:0);
++-  center=e->kind==2?e->pc:e->lr;kind=e->kind;
++-  if(stop) snapshot=marble_ld;
+++ struct marble_ld_view *v=&marble_ld.v;struct marble_ld_event *e=&marble_ld.pending[(sequence-1)%8];
+++ if(!v->enabled || !v->uuid_ok || generation!=v->generation || e->sequence!=sequence || e->generation!=generation || e->returned) {
+++  if(v->lost<0xffffffffu) v->lost++;
+++ } else {
+++  e->returned=1;cause=*e;
+++  if(e->phase) {
+++   if(v->bret<0xffffffffu) v->bret++;
+++   struct marble_ld_bresult *r=&v->post[(v->bret-1)%4];r->event=*e;r->error=error;r->r0=r0;r->r1=r1;
+++   if(error) {if(v->errors<0xffffffffu) v->errors++;if(!v->has_first) {v->first=*r;v->has_first=1;}}
+++   if(v->bret>=v->limit) stop=7;
+++  } else if(e->kind && e->code==SYS_dup2 && e->effective==SYS_dup2 && e->slots_read==2 && v->ndup<3) {
+++   struct marble_ld_dup *d=&v->dup[v->ndup++];
+++   d->sequence=e->sequence;d->generation=e->generation;d->from=(uint32_t)e->slot0;d->to=(uint32_t)e->slot1;d->lr=e->lr;d->error=error;d->r0=r0;d->r1=r1;
+++   if(error) stop=5;else if(v->ndup==3) v->armed=1;
+++  }
+++  if(stop) snapshot=*v;
++  }
++  lck_spin_unlock(&marble_ld_lock);
++- if(stop) marble_ld_dump(&snapshot,stop,kind,center);
+++ if(stop) marble_ld_dump(&snapshot,stop,&cause);
++ }
++ 
++ struct marble_pipe_snapshot { int lookup; uint32_t flags; uint64_t id; unsigned same; };
++--- a/bsd/dev/arm/systemcalls.c
+++++ b/bsd/dev/arm/systemcalls.c
++@@ -45,7 +45,7 @@
++ unix_syscall(struct arm_saved_state * regs, thread_t thread_act, struct proc * proc);
++ 
++ #if DEVELOPMENT || DEBUG
++-extern uint64_t marble_ld_syscall(proc_t,arm_saved_state_t *,unsigned,unsigned,const void *,unsigned);
+++extern uint64_t marble_ld_syscall(proc_t,arm_saved_state_t *,unsigned,unsigned,unsigned,const void *,unsigned);
++ extern void marble_ld_return(proc_t,uint64_t,int,int,int);
++ #endif
++ 
++@@ -186,7 +186,7 @@
++ #endif /* CONFIG_DEBUG_SYSCALL_REJECTION */
++ 
++ #if DEVELOPMENT || DEBUG
++-	marble_ld_ticket=marble_ld_syscall(proc,state,syscode,(unsigned)(callp-sysent),&uthread->uu_arg[0],syscode==SYS_reboot);
+++	marble_ld_ticket=marble_ld_syscall(proc,state,syscode,(unsigned)(callp-sysent),(unsigned)callp->sy_narg,&uthread->uu_arg[0],syscode==SYS_reboot);
++ #endif
++ 	AUDIT_SYSCALL_ENTER(code, proc, uthread);
++ 	error = (*(callp->sy_call))(proc, &uthread->uu_arg[0], &(uthread->uu_rval[0]));
+--- /dev/null
++++ b/patches/xnu/marble-launchd-entry.patch
+@@ -0,0 +1,182 @@
++--- a/bsd/kern/kern_exec.c
+++++ b/bsd/kern/kern_exec.c
++@@ -1187,6 +1187,10 @@
++  *		activators should not be given the opportunity to attempt
++  *		to activate the image.
++  */
+++#if DEVELOPMENT || DEBUG
+++void marble_ld_image_ready(proc_t,uint64_t,uint64_t,const uint8_t *);
+++#endif
+++
++ static int
++ exec_mach_imgact(struct image_params *imgp)
++ {
++@@ -2120,6 +2124,10 @@
++ 		kfree_data(userspace_coredump_name, userspace_coredump_name_len + 1);
++ 		userspace_coredump_name = NULL;
++ 	}
+++
+++#if DEVELOPMENT || DEBUG
+++	marble_ld_image_ready(p,load_result.mach_header,load_result.dynlinker_mach_header,load_result.uuid);
+++#endif
++ 
++ 	goto done;
++ 
++@@ -8234,6 +8242,78 @@
++ }
++ 
++ 
+++/* DEVELOPMENT-only original launchd entry observation. No file or device IO. */
+++struct marble_ld_event { uint64_t pc,lr,a0; unsigned sequence,generation,code; };
+++struct marble_ld_state {
+++ unsigned enabled,budget,uuid_ok,generation,total;
+++ uint64_t header,dyld,start,end;
+++ struct marble_ld_event event[8];
+++};
+++static struct marble_ld_state marble_ld;
+++static LCK_SPIN_DECLARE(marble_ld_lock, &proc_lck_grp);
+++static void
+++marble_ld_begin(void)
+++{
+++ int n=1;
+++ PE_parse_boot_argn("marble-launchd-budget",&n,sizeof(n));
+++ if(n<1 || n>4096) panic("LD ENTRY invalid BSD dispatch budget %d",n);
+++ lck_spin_lock(&marble_ld_lock);
+++ bzero(&marble_ld,sizeof(marble_ld));marble_ld.enabled=1;marble_ld.budget=(unsigned)n;
+++ lck_spin_unlock(&marble_ld_lock);
+++}
+++void
+++marble_ld_image_ready(proc_t p,uint64_t header,uint64_t dyld,const uint8_t *uuid)
+++{
+++ static const uint8_t expected[16]={0x4b,0x52,0x59,0x92,0x8c,0x69,0x31,0x5e,0xa5,0x1a,0xcc,0x94,0x33,0xe4,0x5b,0x51};
+++ if(proc_getpid(p)!=1) return;
+++ unsigned valid=memcmp(uuid,expected,sizeof(expected))==0;
+++ uint64_t start=header+5008,end=start+336872;
+++ if(header<4096 || header>=UINT64_C(0x0000ffffffffffff) || start<header || end<start || end>=UINT64_C(0x0000ffffffffffff)) valid=0;
+++ lck_spin_lock(&marble_ld_lock);
+++ if(marble_ld.enabled) {
+++  marble_ld.uuid_ok=valid;marble_ld.header=header;marble_ld.dyld=dyld;
+++  marble_ld.start=start;marble_ld.end=end;
+++  if(marble_ld.generation<0xffffffffu) marble_ld.generation++;
+++ }
+++ lck_spin_unlock(&marble_ld_lock);
+++}
+++void
+++marble_ld_syscall(proc_t p,arm_saved_state_t *s,unsigned code,unsigned reboot_requested)
+++{
+++ if(!marble_ld.enabled || p!=initproc || p!=current_proc() || proc_getpid(p)!=1 || !is_saved_state64(s)) return;
+++ struct marble_ld_event event={.pc=get_saved_state_pc(s),.lr=get_saved_state_lr(s),.a0=get_saved_state_reg(s,0),.code=code};
+++ struct marble_ld_state snapshot;unsigned stop=0,kind=0;uint64_t center=event.lr;
+++ lck_spin_lock(&marble_ld_lock);
+++ if(marble_ld.generation) {
+++  if(marble_ld.total<0xffffffffu) marble_ld.total++;
+++  event.sequence=marble_ld.total;event.generation=marble_ld.generation;
+++  marble_ld.event[(event.sequence-1)%8]=event;
+++  if(marble_ld.uuid_ok) {
+++   if(event.lr>=marble_ld.start && event.lr<marble_ld.end) kind=1;
+++   else if(event.pc>=marble_ld.start && event.pc<marble_ld.end) {kind=2;center=event.pc;}
+++  }
+++  stop=kind ? 1 : (reboot_requested ? 3 : (marble_ld.total>=marble_ld.budget ? 2 : 0));
+++  if(stop) snapshot=marble_ld;
+++ }
+++ lck_spin_unlock(&marble_ld_lock);
+++ if(!stop) return;
+++ uint32_t sig[8]={0};int copy_error=EINVAL;
+++ if(center>=4096 && center<UINT64_C(0x0000ffffffffffff) && !(center&3)) copy_error=copyin((user_addr_t)(center-16),sig,sizeof(sig));
+++ char message[1792]={0};size_t used=0;
+++ marble_stdio_append(message,sizeof(message),&used,"LD ENTRY n=%u budget=%u stop=%u text=%u uuid=%u gen=%u\n",snapshot.total,snapshot.budget,stop,kind,snapshot.uuid_ok,snapshot.generation);
+++ marble_stdio_append(message,sizeof(message),&used,"main=%llx dyld=%llx\ntext=%llx..%llx\n",(unsigned long long)snapshot.header,(unsigned long long)snapshot.dyld,(unsigned long long)snapshot.start,(unsigned long long)snapshot.end);
+++ unsigned first=snapshot.total>8?snapshot.total-7:1;
+++ for(unsigned n=first;n<=snapshot.total;n++) {
+++  struct marble_ld_event *e=&snapshot.event[(n-1)%8];
+++  marble_stdio_append(message,sizeof(message),&used,"#%u g%u sys%u pc=%llx lr=%llx a0=%llx\n",e->sequence,e->generation,e->code,(unsigned long long)e->pc,(unsigned long long)e->lr,(unsigned long long)e->a0);
+++  if(n==0xffffffffu) break;
+++ }
+++ marble_stdio_append(message,sizeof(message),&used,"center=%llx copy=%d\nsig",(unsigned long long)center,copy_error);
+++ for(unsigned i=0;i<8;i++) marble_stdio_append(message,sizeof(message),&used," %08x",sig[i]);
+++ marble_stdio_append(message,sizeof(message),&used,"\nBefore last BSD handler. text0 may be dyld.\nOriginal launchd entry only; no services accepted.");
+++ panic("%s",message);
+++}
+++
++ struct marble_pipe_snapshot { int lookup; uint32_t flags; uint64_t id; unsigned same; };
++ static struct marble_pipe_snapshot marble_post_exec_pipe;
++ struct marble_write_event {
++@@ -8281,7 +8361,7 @@
++ marble_ram_expr_selected(void)
++ {
++  int diag = 0;
++- return PE_parse_boot_argn("marble-apfs-diag", &diag, sizeof(diag)) && (diag == 4 || diag == 5);
+++ return PE_parse_boot_argn("marble-apfs-diag", &diag, sizeof(diag)) && (diag == 4 || diag == 5 || diag == 6);
++ }
++ 
++ static void
++@@ -8325,13 +8405,14 @@
++ {
++  if (p != initproc || p != current_proc() || !proc_is64bit(p) || !scratch)
++   panic("RAMEXPR unexpected initial process or scratch");
++- marble_ram_expr_prepare(p);
++  int child_diag=0;
++  PE_parse_boot_argn("marble-apfs-diag", &child_diag, sizeof(child_diag));
++- const char *parts[4] = {child_diag==5 ? "/sbin/launchd" : "/bin/expr", "2", "+", "3"};
+++ if(child_diag==6) marble_ld_begin(); else marble_ram_expr_prepare(p);
+++ const char *parts[4] = {(child_diag==5 || child_diag==6) ? "/sbin/launchd" : "/bin/expr", "2", "+", "3"};
++  user64_addr_t vector[5] = {0};
++  user_addr_t cursor = scratch;
++- for (unsigned i = 0; i < 4; ++i) {
+++ unsigned count=child_diag==6?1:4;
+++ for (unsigned i = 0; i < count; ++i) {
++   size_t bytes = strlen(parts[i]) + 1;
++   vector[i] = cursor;
++   int error = copyout(parts[i], cursor, bytes);
++--- a/bsd/vfs/vfs_subr.c
+++++ b/bsd/vfs/vfs_subr.c
++@@ -1259,7 +1259,7 @@
++ 
++ 		/* Dynamic APFS registers after mockfs in this table. Skip the
++ 		 * fixture and continue to the actual APFS callback. */
++-		if ((marble_apfs_diag == 2 || marble_apfs_diag == 3 || marble_apfs_diag == 4 || marble_apfs_diag == 5) && !strcmp(vfsp->vfc_name, "mockfs")) {
+++		if ((marble_apfs_diag == 2 || marble_apfs_diag == 3 || marble_apfs_diag == 4 || marble_apfs_diag == 5 || marble_apfs_diag == 6) && !strcmp(vfsp->vfc_name, "mockfs")) {
++ 			continue;
++ 		}
++ 		mp = vfs_rootmountalloc_internal(vfsp, "root_device");
++@@ -1271,7 +1271,7 @@
++ 			error = VFS_MOUNT(mp, rootvp, 0, ctx);
++ 		}
++ 
++-		if ((marble_apfs_diag == 3 || marble_apfs_diag == 4 || marble_apfs_diag == 5) && error && !strcmp(vfsp->vfc_name, "apfs")) {
+++		if ((marble_apfs_diag == 3 || marble_apfs_diag == 4 || marble_apfs_diag == 5 || marble_apfs_diag == 6) && error && !strcmp(vfsp->vfc_name, "apfs")) {
++ 			panic("RAMAPFS stage3 mount errno=%d", error);
++ 		}
++ 		if (marble_apfs_diag == 2 && !strcmp(vfsp->vfc_name, "apfs")) {
++@@ -1410,7 +1410,7 @@
++ 			printf("%s_mountroot failed: %d\n", vfsp->vfc_name, error);
++ 		}
++ 	}
++-	if (marble_apfs_diag == 2 || marble_apfs_diag == 3 || marble_apfs_diag == 4 || marble_apfs_diag == 5) {
+++	if (marble_apfs_diag == 2 || marble_apfs_diag == 3 || marble_apfs_diag == 4 || marble_apfs_diag == 5 || marble_apfs_diag == 6) {
++ 		extern volatile int native_apfs_load_status;
++ 		extern volatile uint32_t native_apfs_registered;
++ 		panic("RAMAPFS no root callback load=%d reg=%u", native_apfs_load_status, native_apfs_registered);
++--- a/bsd/dev/arm/systemcalls.c
+++++ b/bsd/dev/arm/systemcalls.c
++@@ -43,6 +43,10 @@
++ 
++ extern void
++ unix_syscall(struct arm_saved_state * regs, thread_t thread_act, struct proc * proc);
+++
+++#if DEVELOPMENT || DEBUG
+++extern void marble_ld_syscall(proc_t,arm_saved_state_t *,unsigned,unsigned);
+++#endif
++ 
++ static int      arm_get_syscall_args(uthread_t, struct arm_saved_state *, const struct sysent *);
++ static int      arm_get_u32_syscall_args(uthread_t, arm_saved_state32_t *, const struct sysent *);
++@@ -177,6 +181,9 @@
++ 	}
++ #endif /* CONFIG_DEBUG_SYSCALL_REJECTION */
++ 
+++#if DEVELOPMENT || DEBUG
+++	marble_ld_syscall(proc,state,syscode,syscode==SYS_reboot);
+++#endif
++ 	AUDIT_SYSCALL_ENTER(code, proc, uthread);
++ 	error = (*(callp->sy_call))(proc, &uthread->uu_arg[0], &(uthread->uu_rval[0]));
++ 	AUDIT_SYSCALL_EXIT(code, proc, uthread, error);
+--- /dev/null
++++ b/patches/xnu/marble-launchd-stdio.patch
+@@ -0,0 +1,190 @@
++--- a/bsd/kern/kern_exec.c
+++++ b/bsd/kern/kern_exec.c
++@@ -87,6 +87,7 @@
++ #include <sys/systm.h>
++ #include <sys/filedesc.h>
++ #include <sys/kernel.h>
+++#include <sys/syscall.h>
++ #include <sys/proc_internal.h>
++ #include <sys/kauth.h>
++ #include <sys/user.h>
++@@ -8242,23 +8243,29 @@
++ }
++ 
++ 
++-/* DEVELOPMENT-only original launchd entry observation. No file or device IO. */
++-struct marble_ld_event { uint64_t pc,lr,a0; unsigned sequence,generation,code; };
+++/* DEVELOPMENT-only, RAM-only original-launchd call/normal-return observer. */
+++struct marble_ld_event {
+++ uint64_t pc,lr,a0,arg0,arg1;
+++ unsigned sequence,generation,code,effective,kind,returned;
+++};
+++struct marble_ld_result { struct marble_ld_event event; int error,r0,r1; };
++ struct marble_ld_state {
++- unsigned enabled,budget,uuid_ok,generation,total;
+++ unsigned enabled,budget,follow,uuid_ok,generation,total,completed,lost;
++  uint64_t header,dyld,start,end;
++  struct marble_ld_event event[8];
+++ struct marble_ld_result result[3];
++ };
++ static struct marble_ld_state marble_ld;
++ static LCK_SPIN_DECLARE(marble_ld_lock, &proc_lck_grp);
++ static void
++ marble_ld_begin(void)
++ {
++- int n=1;
+++ int n=1,follow=0;
++  PE_parse_boot_argn("marble-launchd-budget",&n,sizeof(n));
++- if(n<1 || n>4096) panic("LD ENTRY invalid BSD dispatch budget %d",n);
+++ PE_parse_boot_argn("marble-launchd-follow",&follow,sizeof(follow));
+++ if(n<1 || n>4096 || follow<0 || follow>1) panic("LD FOLLOW invalid budget/mode %d/%d",n,follow);
++  lck_spin_lock(&marble_ld_lock);
++- bzero(&marble_ld,sizeof(marble_ld));marble_ld.enabled=1;marble_ld.budget=(unsigned)n;
+++ bzero(&marble_ld,sizeof(marble_ld));marble_ld.enabled=1;marble_ld.budget=(unsigned)n;marble_ld.follow=(unsigned)follow;
++  lck_spin_unlock(&marble_ld_lock);
++ }
++ void
++@@ -8272,46 +8279,81 @@
++  lck_spin_lock(&marble_ld_lock);
++  if(marble_ld.enabled) {
++   marble_ld.uuid_ok=valid;marble_ld.header=header;marble_ld.dyld=dyld;
++-  marble_ld.start=start;marble_ld.end=end;
+++  marble_ld.start=start;marble_ld.end=end;marble_ld.completed=0;
+++  bzero(marble_ld.result,sizeof(marble_ld.result));
++   if(marble_ld.generation<0xffffffffu) marble_ld.generation++;
++  }
++  lck_spin_unlock(&marble_ld_lock);
++ }
++-void
++-marble_ld_syscall(proc_t p,arm_saved_state_t *s,unsigned code,unsigned reboot_requested)
++-{
++- if(!marble_ld.enabled || p!=initproc || p!=current_proc() || proc_getpid(p)!=1 || !is_saved_state64(s)) return;
++- struct marble_ld_event event={.pc=get_saved_state_pc(s),.lr=get_saved_state_lr(s),.a0=get_saved_state_reg(s,0),.code=code};
++- struct marble_ld_state snapshot;unsigned stop=0,kind=0;uint64_t center=event.lr;
+++static void
+++marble_ld_dump(const struct marble_ld_state *snapshot,unsigned stop,unsigned kind,uint64_t center)
+++{
+++ uint32_t sig[8]={0};int copy_error=EINVAL;
+++ if(center>=4096 && center<UINT64_C(0x0000ffffffffffff) && !(center&3)) copy_error=copyin((user_addr_t)(center-16),sig,sizeof(sig));
+++ char message[2048]={0};size_t used=0;
+++ marble_stdio_append(message,sizeof(message),&used,"LD %s n=%u budget=%u stop=%u text=%u uuid=%u gen=%u\n",snapshot->follow?"FOLLOW":"ENTRY",snapshot->total,snapshot->budget,stop,kind,snapshot->uuid_ok,snapshot->generation);
+++ marble_stdio_append(message,sizeof(message),&used,"main=%llx dyld=%llx\ntext=%llx..%llx\n",(unsigned long long)snapshot->header,(unsigned long long)snapshot->dyld,(unsigned long long)snapshot->start,(unsigned long long)snapshot->end);
+++ unsigned first=snapshot->total>4?snapshot->total-3:1;
+++ for(unsigned n=first;n<=snapshot->total;n++) {
+++  const struct marble_ld_event *e=&snapshot->event[(n-1)%8];
+++  marble_stdio_append(message,sizeof(message),&used,"#%u g%u sys%u/%u pc=%llx lr=%llx x0=%llx\n",e->sequence,e->generation,e->code,e->effective,(unsigned long long)e->pc,(unsigned long long)e->lr,(unsigned long long)e->a0);
+++  if(n==0xffffffffu) break;
+++ }
+++ marble_stdio_append(message,sizeof(message),&used,"normal dup2 returns=%u lost=%u\n",snapshot->completed,snapshot->lost);
+++ for(unsigned i=0;i<snapshot->completed && i<3;i++) {
+++  const struct marble_ld_result *r=&snapshot->result[i];
+++  marble_stdio_append(message,sizeof(message),&used,"D%u #%u g%u from=%llu to=%llu err=%d rv=%d/%d lr=%llx\n",i,r->event.sequence,r->event.generation,(unsigned long long)r->event.arg0,(unsigned long long)r->event.arg1,r->error,r->r0,r->r1,(unsigned long long)r->event.lr);
+++ }
+++ marble_stdio_append(message,sizeof(message),&used,"center=%llx copy=%d\nsig",(unsigned long long)center,copy_error);
+++ for(unsigned i=0;i<8;i++) marble_stdio_append(message,sizeof(message),&used," %08x",sig[i]);
+++ marble_stdio_append(message,sizeof(message),&used,"\nstop4=third normal return;5=dup error;1/2/3=pre-handler.\nNormal handler return only; not user resume/services.");
+++ panic("%s",message);
+++}
+++uint64_t
+++marble_ld_syscall(proc_t p,arm_saved_state_t *s,unsigned code,unsigned effective,const void *args,unsigned reboot_requested)
+++{
+++ if(!marble_ld.enabled || p!=initproc || p!=current_proc() || proc_getpid(p)!=1 || !is_saved_state64(s)) return 0;
+++ struct marble_ld_event event={.pc=get_saved_state_pc(s),.lr=get_saved_state_lr(s),.a0=get_saved_state_reg(s,0),.code=code,.effective=effective};
+++ if(effective==SYS_dup2) { uint64_t slots[2];memcpy(slots,args,sizeof(slots));event.arg0=(uint32_t)slots[0];event.arg1=(uint32_t)slots[1]; }
+++ struct marble_ld_state snapshot;unsigned stop=0,kind=0;uint64_t center=event.lr,ticket=0;
++  lck_spin_lock(&marble_ld_lock);
++  if(marble_ld.generation) {
++   if(marble_ld.total<0xffffffffu) marble_ld.total++;
++   event.sequence=marble_ld.total;event.generation=marble_ld.generation;
++-  marble_ld.event[(event.sequence-1)%8]=event;
++   if(marble_ld.uuid_ok) {
++    if(event.lr>=marble_ld.start && event.lr<marble_ld.end) kind=1;
++    else if(event.pc>=marble_ld.start && event.pc<marble_ld.end) {kind=2;center=event.pc;}
++   }
++-  stop=kind ? 1 : (reboot_requested ? 3 : (marble_ld.total>=marble_ld.budget ? 2 : 0));
+++  event.kind=kind;marble_ld.event[(event.sequence-1)%8]=event;
+++  stop=(!marble_ld.follow && kind)?1:(reboot_requested?3:(marble_ld.total>=marble_ld.budget?2:0));
+++  if(marble_ld.follow && kind && code==SYS_dup2 && effective==SYS_dup2)
+++   ticket=((uint64_t)event.generation<<32)|event.sequence;
++   if(stop) snapshot=marble_ld;
++  }
++  lck_spin_unlock(&marble_ld_lock);
++- if(!stop) return;
++- uint32_t sig[8]={0};int copy_error=EINVAL;
++- if(center>=4096 && center<UINT64_C(0x0000ffffffffffff) && !(center&3)) copy_error=copyin((user_addr_t)(center-16),sig,sizeof(sig));
++- char message[1792]={0};size_t used=0;
++- marble_stdio_append(message,sizeof(message),&used,"LD ENTRY n=%u budget=%u stop=%u text=%u uuid=%u gen=%u\n",snapshot.total,snapshot.budget,stop,kind,snapshot.uuid_ok,snapshot.generation);
++- marble_stdio_append(message,sizeof(message),&used,"main=%llx dyld=%llx\ntext=%llx..%llx\n",(unsigned long long)snapshot.header,(unsigned long long)snapshot.dyld,(unsigned long long)snapshot.start,(unsigned long long)snapshot.end);
++- unsigned first=snapshot.total>8?snapshot.total-7:1;
++- for(unsigned n=first;n<=snapshot.total;n++) {
++-  struct marble_ld_event *e=&snapshot.event[(n-1)%8];
++-  marble_stdio_append(message,sizeof(message),&used,"#%u g%u sys%u pc=%llx lr=%llx a0=%llx\n",e->sequence,e->generation,e->code,(unsigned long long)e->pc,(unsigned long long)e->lr,(unsigned long long)e->a0);
++-  if(n==0xffffffffu) break;
+++ if(stop) marble_ld_dump(&snapshot,stop,kind,center);
+++ return ticket;
+++}
+++void
+++marble_ld_return(proc_t p,uint64_t ticket,int error,int r0,int r1)
+++{
+++ if(!ticket || p!=initproc || p!=current_proc() || proc_getpid(p)!=1) return;
+++ unsigned sequence=(unsigned)ticket,generation=(unsigned)(ticket>>32),stop=0;
+++ if(!sequence) return;
+++ struct marble_ld_state snapshot;uint64_t center=0;unsigned kind=0;
+++ lck_spin_lock(&marble_ld_lock);
+++ struct marble_ld_event *e=&marble_ld.event[(sequence-1)%8];
+++ if(!marble_ld.follow || !marble_ld.uuid_ok || generation!=marble_ld.generation || e->sequence!=sequence || e->generation!=generation || e->returned) {
+++  if(marble_ld.lost<0xffffffffu) marble_ld.lost++;
+++ } else if(marble_ld.completed<3 && e->kind && e->code==SYS_dup2 && e->effective==SYS_dup2) {
+++  struct marble_ld_result *r=&marble_ld.result[marble_ld.completed++];
+++  r->event=*e;r->error=error;r->r0=r0;r->r1=r1;e->returned=1;
+++  stop=error?5:(marble_ld.completed==3?4:0);
+++  center=e->kind==2?e->pc:e->lr;kind=e->kind;
+++  if(stop) snapshot=marble_ld;
++  }
++- marble_stdio_append(message,sizeof(message),&used,"center=%llx copy=%d\nsig",(unsigned long long)center,copy_error);
++- for(unsigned i=0;i<8;i++) marble_stdio_append(message,sizeof(message),&used," %08x",sig[i]);
++- marble_stdio_append(message,sizeof(message),&used,"\nBefore last BSD handler. text0 may be dyld.\nOriginal launchd entry only; no services accepted.");
++- panic("%s",message);
+++ lck_spin_unlock(&marble_ld_lock);
+++ if(stop) marble_ld_dump(&snapshot,stop,kind,center);
++ }
++ 
++ struct marble_pipe_snapshot { int lookup; uint32_t flags; uint64_t id; unsigned same; };
++--- a/bsd/dev/arm/systemcalls.c
+++++ b/bsd/dev/arm/systemcalls.c
++@@ -45,7 +45,8 @@
++ unix_syscall(struct arm_saved_state * regs, thread_t thread_act, struct proc * proc);
++ 
++ #if DEVELOPMENT || DEBUG
++-extern void marble_ld_syscall(proc_t,arm_saved_state_t *,unsigned,unsigned);
+++extern uint64_t marble_ld_syscall(proc_t,arm_saved_state_t *,unsigned,unsigned,const void *,unsigned);
+++extern void marble_ld_return(proc_t,uint64_t,int,int,int);
++ #endif
++ 
++ static int      arm_get_syscall_args(uthread_t, struct arm_saved_state *, const struct sysent *);
++@@ -101,6 +102,9 @@
++ 	unsigned short  code, syscode;
++ 	pid_t           pid;
++ 	struct uthread *uthread = get_bsdthread_info(thread_act);
+++#if DEVELOPMENT || DEBUG
+++	uint64_t marble_ld_ticket=0;
+++#endif
++ 
++ 	uthread_reset_proc_refcount(uthread);
++ 
++@@ -182,11 +186,14 @@
++ #endif /* CONFIG_DEBUG_SYSCALL_REJECTION */
++ 
++ #if DEVELOPMENT || DEBUG
++-	marble_ld_syscall(proc,state,syscode,syscode==SYS_reboot);
+++	marble_ld_ticket=marble_ld_syscall(proc,state,syscode,(unsigned)(callp-sysent),&uthread->uu_arg[0],syscode==SYS_reboot);
++ #endif
++ 	AUDIT_SYSCALL_ENTER(code, proc, uthread);
++ 	error = (*(callp->sy_call))(proc, &uthread->uu_arg[0], &(uthread->uu_rval[0]));
++ 	AUDIT_SYSCALL_EXIT(code, proc, uthread, error);
+++#if DEVELOPMENT || DEBUG
+++	marble_ld_return(proc,marble_ld_ticket,error,uthread->uu_rval[0],uthread->uu_rval[1]);
+++#endif
++ 
++ #if CONFIG_MACF
++ skip_syscall:
+--- /dev/null
++++ b/patches/xnu/marble-ram-apfs-diagnostic.patch
+@@ -0,0 +1,90 @@
++--- a/bsd/dev/memdev.c
+++++ b/bsd/dev/memdev.c
++@@ -423,9 +423,8 @@
++ 		if (*f < DEV_BSIZE) {
++ 			return EINVAL;                                /* Too short? */
++ 		}
++-		/* Keep md0 at the APFS container block size even if the caller asks
++-		 * for 512; the restore-ramdisk APFS xattr/extent path depends on it. */
++-		mdev[devid].mdSecsize = (devid == 0) ? 4096 : *f;
+++		/* Honor SET requests after existing validation; preserve the 4K default. */
+++		mdev[devid].mdSecsize = *f;
++ 		break;
++ 
++ 	case DKIOCISWRITABLE:
++--- a/bsd/miscfs/mockfs/mockfs_vfsops.c
+++++ b/bsd/miscfs/mockfs/mockfs_vfsops.c
++@@ -139,6 +139,12 @@
++ 		buf_brelse(header_buf);
++ 	}
++ 	if (rvalue) {
+++		goto done;
+++	}
+++	/* This private diagnostic permits only the explicit fixture format.
+++	 * Never claim APFS/unknown bytes as a successful fake root. */
+++	if (memcmp(header.magic, "N4KROOT", 8)) {
+++		rvalue = ENODEV;
++ 		goto done;
++ 	}
++ 	if (!memcmp(header.magic, "N4KROOT", 8)) {
++--- a/bsd/kern/bsd_init.c
+++++ b/bsd/kern/bsd_init.c
++@@ -510,6 +510,10 @@
++ 	}
++ 	mount_list_unlock();
++ 	native_apfs_probe_checkpoint();
+++	int marble_apfs_diag = 0;
+++	if (PE_parse_boot_argn("marble-apfs-diag", &marble_apfs_diag, sizeof(marble_apfs_diag)) && marble_apfs_diag == 1) {
+++		panic("RAMAPFS LOAD status=%d registered=%u vfsops=%p", native_apfs_load_status, native_apfs_registered, (void *)native_apfs_vfsops);
+++	}
++ }
++ 
++ volatile int native_iogpu_load_status = -1;
++--- a/bsd/vfs/vfs_subr.c
+++++ b/bsd/vfs/vfs_subr.c
++@@ -1218,6 +1218,8 @@
++ 	int     error;
++ 	mount_t mp;
++ 	vnode_t bdevvp_rootvp;
+++	int marble_apfs_diag = 0;
+++	(void)PE_parse_boot_argn("marble-apfs-diag", &marble_apfs_diag, sizeof(marble_apfs_diag));
++ 
++ 	/*
++ 	 * Reset any prior "unmounting everything" state.  This handles the
++@@ -1255,6 +1257,11 @@
++ 			continue;
++ 		}
++ 
+++		/* Dynamic APFS registers after mockfs in this table. Skip the
+++		 * fixture and continue to the actual APFS callback. */
+++		if (marble_apfs_diag == 2 && !strcmp(vfsp->vfc_name, "mockfs")) {
+++			continue;
+++		}
++ 		mp = vfs_rootmountalloc_internal(vfsp, "root_device");
++ 		mp->mnt_devvp = rootvp;
++ 
++@@ -1262,6 +1269,12 @@
++ 			error = (*vfsp->vfc_mountroot)(mp, rootvp, ctx);
++ 		} else {
++ 			error = VFS_MOUNT(mp, rootvp, 0, ctx);
+++		}
+++
+++		if (marble_apfs_diag == 2 && !strcmp(vfsp->vfc_name, "apfs")) {
+++			extern volatile int native_apfs_load_status;
+++			extern volatile uint32_t native_apfs_registered;
+++			panic("RAMAPFS MOUNT errno=%d load=%d reg=%u rootdev=%x", error, native_apfs_load_status, native_apfs_registered, (unsigned)rootdev);
++ 		}
++ 
++ 		if (!error) {
++@@ -1393,6 +1406,11 @@
++ 		if (error != EINVAL) {
++ 			printf("%s_mountroot failed: %d\n", vfsp->vfc_name, error);
++ 		}
+++	}
+++	if (marble_apfs_diag == 2) {
+++		extern volatile int native_apfs_load_status;
+++		extern volatile uint32_t native_apfs_registered;
+++		panic("RAMAPFS no root callback load=%d reg=%u", native_apfs_load_status, native_apfs_registered);
++ 	}
++ 	KDBG_RELEASE(DBG_MOUNTROOT | DBG_FUNC_END, error ? error : ENODEV, 4);
++ 	return ENODEV;
+--- /dev/null
++++ b/patches/xnu/marble-ram-apfs-ready.patch
+@@ -0,0 +1,97 @@
++--- a/bsd/vfs/vfs_subr.c
+++++ b/bsd/vfs/vfs_subr.c
++@@ -1259,7 +1259,7 @@
++ 
++ 		/* Dynamic APFS registers after mockfs in this table. Skip the
++ 		 * fixture and continue to the actual APFS callback. */
++-		if (marble_apfs_diag == 2 && !strcmp(vfsp->vfc_name, "mockfs")) {
+++		if ((marble_apfs_diag == 2 || marble_apfs_diag == 3) && !strcmp(vfsp->vfc_name, "mockfs")) {
++ 			continue;
++ 		}
++ 		mp = vfs_rootmountalloc_internal(vfsp, "root_device");
++@@ -1271,6 +1271,9 @@
++ 			error = VFS_MOUNT(mp, rootvp, 0, ctx);
++ 		}
++ 
+++		if (marble_apfs_diag == 3 && error && !strcmp(vfsp->vfc_name, "apfs")) {
+++			panic("RAMAPFS stage3 mount errno=%d", error);
+++		}
++ 		if (marble_apfs_diag == 2 && !strcmp(vfsp->vfc_name, "apfs")) {
++ 			extern volatile int native_apfs_load_status;
++ 			extern volatile uint32_t native_apfs_registered;
++@@ -1407,7 +1410,7 @@
++ 			printf("%s_mountroot failed: %d\n", vfsp->vfc_name, error);
++ 		}
++ 	}
++-	if (marble_apfs_diag == 2) {
+++	if (marble_apfs_diag == 2 || marble_apfs_diag == 3) {
++ 		extern volatile int native_apfs_load_status;
++ 		extern volatile uint32_t native_apfs_registered;
++ 		panic("RAMAPFS no root callback load=%d reg=%u", native_apfs_load_status, native_apfs_registered);
++--- a/bsd/kern/kern_exec.c
+++++ b/bsd/kern/kern_exec.c
++@@ -8179,9 +8179,64 @@
++  * 3		2		NA		/usr/appleinternal/sbin/launchd.development
++  * 4		3		1		/sbin/launchd
++  */
+++
+++#if DEVELOPMENT || DEBUG
+++/* Only called at load_init_program after bsd_init has completed, including
+++ * normal IOSecureBSDRoot and its ordinary RAM/non-RAM root policy. */
+++extern bool bsd_rooted_ramdisk(void);
+++struct marble_header_probe {
+++ int open_error, read_error, residual, close_error;
+++ uint32_t magic, cpu;
+++};
+++static void
+++marble_probe_header(const char *path, struct marble_header_probe *r,
+++    vfs_context_t ctx)
+++{
+++ vnode_t vp = NULLVP;
+++ uint32_t header[16] = { 0 };
+++ r->open_error = -1; r->read_error = -1; r->residual = sizeof(header);
+++ r->close_error = -1; r->magic = 0; r->cpu = 0;
+++ r->open_error = vnode_open(path, FREAD, 0, 0, &vp, ctx);
+++ if (r->open_error) return;
+++ r->read_error = vn_rdwr(UIO_READ, vp, (caddr_t)header, sizeof(header), 0,
+++     UIO_SYSSPACE, 0, vfs_context_ucred(ctx), &r->residual, vfs_context_proc(ctx));
+++ if (!r->read_error && r->residual == 0) {
+++  r->magic = header[0]; r->cpu = header[1];
+++ }
+++ r->close_error = vnode_close(vp, FREAD, ctx);
+++}
+++static void
+++marble_ram_ready_checkpoint(void)
+++{
+++ int diag = 0;
+++ if (!PE_parse_boot_argn("marble-apfs-diag", &diag, sizeof(diag)) || diag != 3) return;
+++ if (rootvnode == NULLVP) panic("RAMAPFS READY no root vnode");
+++ mount_t mp = vnode_mount(rootvnode);
+++ if (mp == NULL) panic("RAMAPFS READY no root mount");
+++ struct vfsstatfs *sf = vfs_statfs(mp);
+++ struct marble_header_probe expr, dyld, launchd;
+++ vfs_context_t ctx = vfs_context_current();
+++ marble_probe_header("/bin/expr", &expr, ctx);
+++ marble_probe_header("/usr/lib/dyld", &dyld, ctx);
+++ marble_probe_header("/sbin/launchd", &launchd, ctx);
+++ panic("RAMAPFS READY fs=%s flags=%llx ram=%u\n"
+++     "expr o=%d r=%d rem=%d c=%d %08x %08x\n"
+++     "dyld o=%d r=%d rem=%d c=%d %08x %08x\n"
+++     "launchd o=%d r=%d rem=%d c=%d %08x %08x",
+++     sf ? sf->f_fstypename : "?", (unsigned long long)vfs_flags(mp),
+++     (unsigned)bsd_rooted_ramdisk(),
+++     expr.open_error, expr.read_error, expr.residual, expr.close_error, expr.magic, expr.cpu,
+++     dyld.open_error, dyld.read_error, dyld.residual, dyld.close_error, dyld.magic, dyld.cpu,
+++     launchd.open_error, launchd.read_error, launchd.residual, launchd.close_error, launchd.magic, launchd.cpu);
+++}
+++#endif
+++
++ void
++ load_init_program(proc_t p)
++ {
+++#if DEVELOPMENT || DEBUG
+++	marble_ram_ready_checkpoint();
+++#endif
++ 	boot_progress_stage("load_init_program enter");
++ 	uint32_t i;
++ 	int error;
+--- /dev/null
++++ b/patches/xnu/marble-ram-expr-exec.patch
+@@ -0,0 +1,185 @@
++--- a/bsd/vfs/vfs_subr.c
+++++ b/bsd/vfs/vfs_subr.c
++@@ -1259,7 +1259,7 @@
++ 
++ 		/* Dynamic APFS registers after mockfs in this table. Skip the
++ 		 * fixture and continue to the actual APFS callback. */
++-		if ((marble_apfs_diag == 2 || marble_apfs_diag == 3) && !strcmp(vfsp->vfc_name, "mockfs")) {
+++		if ((marble_apfs_diag == 2 || marble_apfs_diag == 3 || marble_apfs_diag == 4) && !strcmp(vfsp->vfc_name, "mockfs")) {
++ 			continue;
++ 		}
++ 		mp = vfs_rootmountalloc_internal(vfsp, "root_device");
++@@ -1271,7 +1271,7 @@
++ 			error = VFS_MOUNT(mp, rootvp, 0, ctx);
++ 		}
++ 
++-		if (marble_apfs_diag == 3 && error && !strcmp(vfsp->vfc_name, "apfs")) {
+++		if ((marble_apfs_diag == 3 || marble_apfs_diag == 4) && error && !strcmp(vfsp->vfc_name, "apfs")) {
++ 			panic("RAMAPFS stage3 mount errno=%d", error);
++ 		}
++ 		if (marble_apfs_diag == 2 && !strcmp(vfsp->vfc_name, "apfs")) {
++@@ -1410,7 +1410,7 @@
++ 			printf("%s_mountroot failed: %d\n", vfsp->vfc_name, error);
++ 		}
++ 	}
++-	if (marble_apfs_diag == 2 || marble_apfs_diag == 3) {
+++	if (marble_apfs_diag == 2 || marble_apfs_diag == 3 || marble_apfs_diag == 4) {
++ 		extern volatile int native_apfs_load_status;
++ 		extern volatile uint32_t native_apfs_registered;
++ 		panic("RAMAPFS no root callback load=%d reg=%u", native_apfs_load_status, native_apfs_registered);
++--- a/bsd/kern/kern_exec.c
+++++ b/bsd/kern/kern_exec.c
++@@ -8054,6 +8054,125 @@
++ }
++ #endif
++ 
+++
+++#if DEVELOPMENT || DEBUG
+++#include <sys/pipe.h>
+++#include <sys/wait.h>
+++static unsigned marble_ram_expr_stage;
+++static uint64_t marble_ram_expr_pipe_id;
+++static int
+++marble_ram_expr_selected(void)
+++{
+++ int diag = 0;
+++ return PE_parse_boot_argn("marble-apfs-diag", &diag, sizeof(diag)) && diag == 4;
+++}
+++
+++static void
+++marble_ram_expr_prepare(proc_t p)
+++{
+++ int32_t result[2] = {-1, -1};
+++ int error = pipe(p, NULL, result);
+++ if (error || result[0] != 0 || result[1] != 1)
+++  panic("RAMEXPR pipe errno=%d fd=%d/%d", error, result[0], result[1]);
+++ for (int fd = 0; fd < 2; ++fd) {
+++  struct fcntl_nocancel_args flags = {.fd=fd, .cmd=F_SETFL, .arg=O_NONBLOCK};
+++  error = sys_fcntl_nocancel(p, &flags, result);
+++  if (error) panic("RAMEXPR nonblock fd=%d errno=%d", fd, error);
+++ }
+++ struct dup2_args duplicate = {.from=1, .to=2};
+++ error = sys_dup2(p, &duplicate, result);
+++ if (error || result[0] != 2) panic("RAMEXPR stderr errno=%d fd=%d", error, result[0]);
+++ for (int fd = 0; fd < 3; ++fd) {
+++  struct fileproc *fp = NULL;
+++  error = fp_get_ftype(p, fd, DTYPE_PIPE, ENOTSUP, &fp);
+++  if (error) panic("RAMEXPR pipe lookup fd=%d errno=%d", fd, error);
+++  unsigned needed = FNONBLOCK | (fd == 0 ? FREAD : FWRITE);
+++  uint64_t identifier = pipe_id((struct pipe *)fp_get_data(fp));
+++  int valid = (fp->f_flag & needed) == needed;
+++  if (fd == 0) marble_ram_expr_pipe_id = identifier;
+++  else valid = valid && identifier == marble_ram_expr_pipe_id;
+++  fp_drop(p, fd, fp, 0);
+++  if (!valid) panic("RAMEXPR pipe identity/flags fd=%d", fd);
+++ }
+++}
+++
+++static int
+++marble_ram_expr_exec(proc_t p, user_addr_t scratch, user_addr_t envp)
+++{
+++ if (p != initproc || p != current_proc() || !proc_is64bit(p) || !scratch)
+++  panic("RAMEXPR unexpected initial process or scratch");
+++ marble_ram_expr_prepare(p);
+++ const char *parts[4] = {"/bin/expr", "2", "+", "3"};
+++ user64_addr_t vector[5] = {0};
+++ user_addr_t cursor = scratch;
+++ for (unsigned i = 0; i < 4; ++i) {
+++  size_t bytes = strlen(parts[i]) + 1;
+++  vector[i] = cursor;
+++  int error = copyout(parts[i], cursor, bytes);
+++  if (error) return error;
+++  cursor += bytes;
+++ }
+++ cursor = USER_ADDR_ALIGN(cursor, sizeof(user64_addr_t));
+++ if (cursor + sizeof(vector) - scratch > 128) panic("RAMEXPR argv bounds");
+++ int error = copyout(vector, cursor, sizeof(vector));
+++ if (error) return error;
+++ struct execve_args args = {.fname=vector[0], .argp=cursor, .envp=envp};
+++ int result[2] = {0};
+++ set_security_token(p, proc_ucred_unsafe(p));
+++ marble_ram_expr_stage = 1;
+++ error = execve(p, &args, result);
+++ if (!error) marble_ram_expr_stage = 2;
+++ return error;
+++}
+++
+++/* Called before original PID1 crash/sync and descriptor teardown.  The byte
+++ * bound does not promise that native pipe locks can never wait. */
+++void
+++marble_ram_expr_exit(proc_t p, int rv)
+++{
+++ if (!marble_ram_expr_stage || p != initproc || p != current_proc() || proc_getpid(p) != 1) return;
+++ uint8_t bytes[128] = {0};
+++ char hex[257] = {0};
+++ static const char digits[] = "0123456789abcdef";
+++ unsigned count = 0;
+++ struct fileproc *fp = NULL;
+++ int error = fp_get_ftype(p, 0, DTYPE_PIPE, ENOTSUP, &fp);
+++ if (!error) {
+++  if ((fp->f_flag & (FREAD | FNONBLOCK)) != (FREAD | FNONBLOCK) ||
+++      pipe_id((struct pipe *)fp_get_data(fp)) != marble_ram_expr_pipe_id) {
+++   error = EBADF;
+++  } else {
+++   UIO_STACKBUF(storage, 1);
+++   uio_t uio = uio_createwithbuffer(1, 0, UIO_SYSSPACE, UIO_READ, storage, sizeof(storage));
+++   error = uio_addiov(uio, (user_addr_t)(uintptr_t)bytes, sizeof(bytes));
+++   if (!error) {
+++    struct vfs_context context = *vfs_context_current();
+++    context.vc_ucred = fp->fp_glob->fg_cred;
+++    error = fo_read(fp, uio, 0, &context);
+++    user_ssize_t residual = uio_resid(uio);
+++    if (residual < 0 || residual > (user_ssize_t)sizeof(bytes)) error = EIO;
+++    else count = sizeof(bytes) - (unsigned)residual;
+++   }
+++  }
+++  fp_drop(p, 0, fp, 0);
+++ }
+++ for (unsigned i = 0; i < count; ++i) {
+++  hex[i*2] = digits[bytes[i] >> 4]; hex[i*2+1] = digits[bytes[i] & 15];
+++ }
+++ uint32_t ns = 0; uint64_t code = 0;
+++ const char *description = "-";
+++ if (p->p_exit_reason != OS_REASON_NULL) {
+++  ns = p->p_exit_reason->osr_namespace; code = p->p_exit_reason->osr_code;
+++  const char *text = exit_reason_get_string_desc(p->p_exit_reason);
+++  if (text) description = text;
+++ }
+++ panic("RAMEXPR EXIT stage=%u sig=%u status=%u cs=%x\n"
+++     "name=%.16s ns=%u code=%llx\npipe errno=%d bytes=%u\nhex=%s\nreason=%.96s",
+++     marble_ram_expr_stage, (unsigned)WTERMSIG(rv), (unsigned)WEXITSTATUS(rv),
+++     proc_getcsflags(p), p->p_name, ns, (unsigned long long)code, error, count, hex, description);
+++}
+++#endif
+++
++ static int
++ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
++ {
++@@ -8268,6 +8387,14 @@
++ #if CONFIG_MEMORYSTATUS
++ 	(void) memorystatus_init_at_boot_snapshot();
++ #endif /* CONFIG_MEMORYSTATUS */
+++
+++#if DEVELOPMENT || DEBUG
+++ if (marble_ram_expr_selected()) {
+++  error = marble_ram_expr_exec(p, (user_addr_t)scratch_addr, init_envp);
+++  if (error) panic("RAMEXPR EXEC errno=%d first=%08x second=%08x", error, g_exec_first_word, g_exec_second_word);
+++  return;
+++ }
+++#endif
++ 
++ #if (DEBUG || DEVELOPMENT) && defined(XNU_NATIVE_AIR_INIT) && XNU_NATIVE_AIR_INIT
++ 	int offline_air = 0;
++--- a/bsd/kern/kern_exit.c
+++++ b/bsd/kern/kern_exit.c
++@@ -1820,6 +1820,10 @@
++ static void
++ proc_handle_critical_exit(proc_t p, int rv)
++ {
+++#if DEVELOPMENT || DEBUG
+++	extern void marble_ram_expr_exit(proc_t, int);
+++	marble_ram_expr_exit(p, rv);
+++#endif
++ 	if (!proc_should_trigger_panic(p, rv)) {
++ 		// No panic, bail out
++ 		return;
+--- /dev/null
++++ b/patches/xnu/marble-ram-expr-fd-safety.patch
+@@ -0,0 +1,34 @@
++--- a/bsd/kern/kern_exec.c
+++++ b/bsd/kern/kern_exec.c
++@@ -8070,6 +8070,13 @@
++ static void
++ marble_ram_expr_prepare(proc_t p)
++ {
+++ struct fileproc *inherited = NULL;
+++ int inherited_error = fp_lookup(p, 2, &inherited, 0);
+++ if (!inherited_error) {
+++  fp_drop(p, 2, inherited, 0);
+++  panic("RAMEXPR inherited fd2 occupied; refusing replacement");
+++ }
+++ if (inherited_error != EBADF) panic("RAMEXPR inherited fd2 lookup errno=%d", inherited_error);
++  int32_t result[2] = {-1, -1};
++  int error = pipe(p, NULL, result);
++  if (error || result[0] != 0 || result[1] != 1)
++@@ -8088,7 +8095,7 @@
++   if (error) panic("RAMEXPR pipe lookup fd=%d errno=%d", fd, error);
++   unsigned needed = FNONBLOCK | (fd == 0 ? FREAD : FWRITE);
++   uint64_t identifier = pipe_id((struct pipe *)fp_get_data(fp));
++-  int valid = (fp->f_flag & needed) == needed;
+++  int valid = (fp->fp_glob->fg_flag & needed) == needed;
++   if (fd == 0) marble_ram_expr_pipe_id = identifier;
++   else valid = valid && identifier == marble_ram_expr_pipe_id;
++   fp_drop(p, fd, fp, 0);
++@@ -8138,7 +8145,7 @@
++  struct fileproc *fp = NULL;
++  int error = fp_get_ftype(p, 0, DTYPE_PIPE, ENOTSUP, &fp);
++  if (!error) {
++-  if ((fp->f_flag & (FREAD | FNONBLOCK)) != (FREAD | FNONBLOCK) ||
+++  if ((fp->fp_glob->fg_flag & (FREAD | FNONBLOCK)) != (FREAD | FNONBLOCK) ||
++       pipe_id((struct pipe *)fp_get_data(fp)) != marble_ram_expr_pipe_id) {
++    error = EBADF;
++   } else {
+--- /dev/null
++++ b/patches/xnu/marble-ram-expr-trace.patch
+@@ -0,0 +1,226 @@
++--- a/bsd/kern/kern_exec.c
+++++ b/bsd/kern/kern_exec.c
++@@ -8060,6 +8060,50 @@
++ #include <sys/wait.h>
++ static unsigned marble_ram_expr_stage;
++ static uint64_t marble_ram_expr_pipe_id;
+++
+++struct marble_pipe_snapshot { int lookup; uint32_t flags; uint64_t id; unsigned same; };
+++static struct marble_pipe_snapshot marble_post_exec_pipe;
+++struct marble_write_event {
+++ int fd, error, copy_error; user_ssize_t accepted; user_size_t first_iov_bytes;
+++ unsigned captured; uint8_t prefix[48];
+++};
+++struct marble_write_trace { unsigned total; struct marble_write_event event[4]; };
+++static struct marble_write_trace marble_writes;
+++static LCK_MTX_DECLARE_ATTR(marble_write_trace_lock, &proc_lck_grp, &proc_lck_attr);
+++static void
+++marble_pipe_snapshot(proc_t p, struct marble_pipe_snapshot *s)
+++{
+++ struct fileproc *fp = NULL;
+++ bzero(s, sizeof(*s));
+++ s->lookup = fp_get_ftype(p, 0, DTYPE_PIPE, ENOTSUP, &fp);
+++ if (!s->lookup) {
+++  s->flags = fp->fp_glob->fg_flag;
+++  s->id = pipe_id((struct pipe *)fp_get_data(fp));
+++  s->same = s->id == marble_ram_expr_pipe_id;
+++  fp_drop(p, 0, fp, 0);
+++ }
+++}
+++int
+++marble_ram_expr_trace_active(proc_t p)
+++{
+++ return marble_ram_expr_stage == 2 && p == initproc && p == current_proc() && proc_getpid(p) == 1;
+++}
+++void
+++marble_ram_expr_note_write(proc_t p, int fd, int error, user_ssize_t accepted,
+++    int copy_error, user_size_t first_iov_bytes, const uint8_t *prefix, unsigned captured)
+++{
+++ if (!marble_ram_expr_trace_active(p) || (fd != 1 && fd != 2) || captured > 48) return;
+++ lck_mtx_lock(&marble_write_trace_lock);
+++ unsigned slot = marble_writes.total;
+++ if (slot < 4) {
+++  struct marble_write_event *e = &marble_writes.event[slot];
+++  e->fd=fd; e->error=error; e->accepted=accepted; e->copy_error=copy_error;
+++  e->first_iov_bytes=first_iov_bytes; e->captured=captured;
+++  if (captured) memcpy(e->prefix, prefix, captured);
+++ }
+++ if (marble_writes.total < 0xffffffffu) marble_writes.total++;
+++ lck_mtx_unlock(&marble_write_trace_lock);
+++}
++ static int
++ marble_ram_expr_selected(void)
++ {
++@@ -8128,7 +8172,10 @@
++  set_security_token(p, proc_ucred_unsafe(p));
++  marble_ram_expr_stage = 1;
++  error = execve(p, &args, result);
++- if (!error) marble_ram_expr_stage = 2;
+++ if (!error) {
+++  marble_pipe_snapshot(current_proc(), &marble_post_exec_pipe);
+++  marble_ram_expr_stage = 2;
+++ }
++  return error;
++ }
++ 
++@@ -8138,45 +8185,61 @@
++ marble_ram_expr_exit(proc_t p, int rv)
++ {
++  if (!marble_ram_expr_stage || p != initproc || p != current_proc() || proc_getpid(p) != 1) return;
++- uint8_t bytes[128] = {0};
++- char hex[257] = {0};
+++ uint8_t bytes[128] = {0}; char hex[257] = {0}; char write_hex[4][97] = {{0}};
++  static const char digits[] = "0123456789abcdef";
++- unsigned count = 0;
++- struct fileproc *fp = NULL;
++- int error = fp_get_ftype(p, 0, DTYPE_PIPE, ENOTSUP, &fp);
++- if (!error) {
++-  if ((fp->fp_glob->fg_flag & (FREAD | FNONBLOCK)) != (FREAD | FNONBLOCK) ||
++-      pipe_id((struct pipe *)fp_get_data(fp)) != marble_ram_expr_pipe_id) {
++-   error = EBADF;
++-  } else {
++-   UIO_STACKBUF(storage, 1);
++-   uio_t uio = uio_createwithbuffer(1, 0, UIO_SYSSPACE, UIO_READ, storage, sizeof(storage));
++-   error = uio_addiov(uio, (user_addr_t)(uintptr_t)bytes, sizeof(bytes));
++-   if (!error) {
++-    struct vfs_context context = *vfs_context_current();
++-    context.vc_ucred = fp->fp_glob->fg_cred;
++-    error = fo_read(fp, uio, 0, &context);
++-    user_ssize_t residual = uio_resid(uio);
++-    if (residual < 0 || residual > (user_ssize_t)sizeof(bytes)) error = EIO;
++-    else count = sizeof(bytes) - (unsigned)residual;
+++ struct marble_write_trace trace;
+++ lck_mtx_lock(&marble_write_trace_lock); trace=marble_writes; lck_mtx_unlock(&marble_write_trace_lock);
+++ for (unsigned k=0; k<4; ++k) for (unsigned i=0; i<trace.event[k].captured; ++i) {
+++  write_hex[k][i*2]=digits[trace.event[k].prefix[i]>>4];
+++  write_hex[k][i*2+1]=digits[trace.event[k].prefix[i]&15];
+++ }
+++ unsigned count=0, qualification=0, read_called=0; int read_error=0;
+++ struct marble_pipe_snapshot at_exit={0}; struct fileproc *fp=NULL;
+++ at_exit.lookup=fp_get_ftype(p, 0, DTYPE_PIPE, ENOTSUP, &fp);
+++ if (!at_exit.lookup) {
+++  at_exit.flags=fp->fp_glob->fg_flag;
+++  at_exit.id=pipe_id((struct pipe *)fp_get_data(fp));
+++  at_exit.same=at_exit.id==marble_ram_expr_pipe_id;
+++  if (!(at_exit.flags & FREAD)) qualification|=1;
+++  if (!(at_exit.flags & FNONBLOCK)) qualification|=2;
+++  if (!at_exit.same) qualification|=4;
+++  if (!qualification) {
+++   UIO_STACKBUF(storage,1);
+++   uio_t uio=uio_createwithbuffer(1,0,UIO_SYSSPACE,UIO_READ,storage,sizeof(storage));
+++   read_error=uio_addiov(uio,(user_addr_t)(uintptr_t)bytes,sizeof(bytes));
+++   if (!read_error) {
+++    struct vfs_context context=*vfs_context_current(); context.vc_ucred=fp->fp_glob->fg_cred;
+++    read_called=1; read_error=fo_read(fp,uio,0,&context);
+++    user_ssize_t residual=uio_resid(uio);
+++    if (residual<0 || residual>(user_ssize_t)sizeof(bytes)) read_error=EIO;
+++    else count=sizeof(bytes)-(unsigned)residual;
++    }
++   }
++-  fp_drop(p, 0, fp, 0);
+++  fp_drop(p,0,fp,0);
++  }
++- for (unsigned i = 0; i < count; ++i) {
++-  hex[i*2] = digits[bytes[i] >> 4]; hex[i*2+1] = digits[bytes[i] & 15];
+++ for(unsigned i=0;i<count;++i) { hex[i*2]=digits[bytes[i]>>4];hex[i*2+1]=digits[bytes[i]&15]; }
+++ uint32_t ns=0;uint64_t code=0;const char *description="-";
+++ if(p->p_exit_reason!=OS_REASON_NULL) {
+++  ns=p->p_exit_reason->osr_namespace;code=p->p_exit_reason->osr_code;
+++  const char *text=exit_reason_get_string_desc(p->p_exit_reason);if(text)description=text;
++  }
++- uint32_t ns = 0; uint64_t code = 0;
++- const char *description = "-";
++- if (p->p_exit_reason != OS_REASON_NULL) {
++-  ns = p->p_exit_reason->osr_namespace; code = p->p_exit_reason->osr_code;
++-  const char *text = exit_reason_get_string_desc(p->p_exit_reason);
++-  if (text) description = text;
++- }
++- panic("RAMEXPR EXIT stage=%u sig=%u status=%u cs=%x\n"
++-     "name=%.16s ns=%u code=%llx\npipe errno=%d bytes=%u\nhex=%s\nreason=%.96s",
++-     marble_ram_expr_stage, (unsigned)WTERMSIG(rv), (unsigned)WEXITSTATUS(rv),
++-     proc_getcsflags(p), p->p_name, ns, (unsigned long long)code, error, count, hex, description);
+++ panic("RAMEXPR TRACE stage=%u argc=%d sig=%u status=%u cs=%x\n"
+++   "post l=%d f=%x same=%u id=%llx\nexit l=%d f=%x same=%u id=%llx\n"
+++   "expect=%llx q=%x read=%u errno=%d bytes=%u\nhex=%s\nwrites=%u (first4, prefix snapshots)\n"
+++   "w0 fd=%d err=%d n=%lld c=%d len=%llu hex=%s\n"
+++   "w1 fd=%d err=%d n=%lld c=%d len=%llu hex=%s\n"
+++   "w2 fd=%d err=%d n=%lld c=%d len=%llu hex=%s\n"
+++   "w3 fd=%d err=%d n=%lld c=%d len=%llu hex=%s\n"
+++   "name=%.16s ns=%u code=%llx reason=%.96s",
+++   marble_ram_expr_stage,p->p_argc,(unsigned)WTERMSIG(rv),(unsigned)WEXITSTATUS(rv),proc_getcsflags(p),
+++   marble_post_exec_pipe.lookup,marble_post_exec_pipe.flags,marble_post_exec_pipe.same,(unsigned long long)marble_post_exec_pipe.id,
+++   at_exit.lookup,at_exit.flags,at_exit.same,(unsigned long long)at_exit.id,
+++   (unsigned long long)marble_ram_expr_pipe_id,qualification,read_called,read_error,count,hex,trace.total,
+++   trace.event[0].fd,trace.event[0].error,(long long)trace.event[0].accepted,trace.event[0].copy_error,(unsigned long long)trace.event[0].first_iov_bytes,write_hex[0],
+++   trace.event[1].fd,trace.event[1].error,(long long)trace.event[1].accepted,trace.event[1].copy_error,(unsigned long long)trace.event[1].first_iov_bytes,write_hex[1],
+++   trace.event[2].fd,trace.event[2].error,(long long)trace.event[2].accepted,trace.event[2].copy_error,(unsigned long long)trace.event[2].first_iov_bytes,write_hex[2],
+++   trace.event[3].fd,trace.event[3].error,(long long)trace.event[3].accepted,trace.event[3].copy_error,(unsigned long long)trace.event[3].first_iov_bytes,write_hex[3],
+++   p->p_name,ns,(unsigned long long)code,description);
++ }
++ #endif
++ 
++--- a/bsd/kern/sys_generic.c
+++++ b/bsd/kern/sys_generic.c
++@@ -650,26 +650,46 @@
++ 	return fp_writev(ctx, fp, uio, flags, retval);
++ }
++ 
+++#if DEVELOPMENT || DEBUG
+++extern int marble_ram_expr_trace_active(proc_t);
+++extern void marble_ram_expr_note_write(proc_t,int,int,user_ssize_t,int,user_size_t,const uint8_t *,unsigned);
+++#endif
++ static int
++ writev_internal(struct proc *p, int fd, uio_t uio, int flags,
++     guardid_t *puguard, user_ssize_t *retval)
++ {
++-	struct fileproc *fp = NULL;
++-	struct vfs_context context;
++-	int error;
++-
++-	if ((error = preparefilewrite(p, &fp, fd, flags & FOF_OFFSET, puguard))) {
++-		*retval = 0;
++-		return error;
++-	}
++-
++-	context = *(vfs_context_current());
++-	context.vc_ucred = fp->fp_glob->fg_cred;
++-
++-	error = fp_writev(&context, fp, uio, flags, retval);
++-
++-	fp_drop(p, fd, fp, 0);
++-	return error;
+++ struct fileproc *fp = NULL;
+++ struct vfs_context context;
+++ int error;
+++#if DEVELOPMENT || DEBUG
+++ int observe=(fd==1 || fd==2) && marble_ram_expr_trace_active(p);
+++ uint8_t prefix[48]={0}; unsigned captured=0; int copy_error=0;
+++ user_size_t first_iov_bytes=0; user_addr_t address=0;
+++ if(observe) {
+++  if(!uio_isuserspace(uio) || uio_rw(uio)!=UIO_WRITE) copy_error=EINVAL;
+++  else copy_error=uio_getiov(uio,0,&address,&first_iov_bytes);
+++  if(!copy_error) {
+++   unsigned amount=first_iov_bytes>sizeof(prefix)?sizeof(prefix):(unsigned)first_iov_bytes;
+++   if(amount) copy_error=copyin(address,prefix,amount);
+++   if(!copy_error) captured=amount;
+++  }
+++ }
+++#endif
+++ if ((error = preparefilewrite(p, &fp, fd, flags & FOF_OFFSET, puguard))) {
+++  *retval = 0;
+++#if DEVELOPMENT || DEBUG
+++  if(observe) marble_ram_expr_note_write(p,fd,error,*retval,copy_error,first_iov_bytes,prefix,captured);
+++#endif
+++  return error;
+++ }
+++ context = *(vfs_context_current());
+++ context.vc_ucred = fp->fp_glob->fg_cred;
+++ error = fp_writev(&context, fp, uio, flags, retval);
+++ fp_drop(p, fd, fp, 0);
+++#if DEVELOPMENT || DEBUG
+++ if(observe) marble_ram_expr_note_write(p,fd,error,*retval,copy_error,first_iov_bytes,prefix,captured);
+++#endif
+++ return error;
++ }
++ 
++ int
+--- /dev/null
++++ b/patches/xnu/marble-stdio-child.patch
+@@ -0,0 +1,51 @@
++--- a/bsd/kern/kern_exec.c
+++++ b/bsd/kern/kern_exec.c
++@@ -8281,7 +8281,7 @@
++ marble_ram_expr_selected(void)
++ {
++  int diag = 0;
++- return PE_parse_boot_argn("marble-apfs-diag", &diag, sizeof(diag)) && diag == 4;
+++ return PE_parse_boot_argn("marble-apfs-diag", &diag, sizeof(diag)) && (diag == 4 || diag == 5);
++ }
++ 
++ static void
++@@ -8326,7 +8326,9 @@
++  if (p != initproc || p != current_proc() || !proc_is64bit(p) || !scratch)
++   panic("RAMEXPR unexpected initial process or scratch");
++  marble_ram_expr_prepare(p);
++- const char *parts[4] = {"/bin/expr", "2", "+", "3"};
+++ int child_diag=0;
+++ PE_parse_boot_argn("marble-apfs-diag", &child_diag, sizeof(child_diag));
+++ const char *parts[4] = {child_diag==5 ? "/sbin/launchd" : "/bin/expr", "2", "+", "3"};
++  user64_addr_t vector[5] = {0};
++  user_addr_t cursor = scratch;
++  for (unsigned i = 0; i < 4; ++i) {
++--- a/bsd/vfs/vfs_subr.c
+++++ b/bsd/vfs/vfs_subr.c
++@@ -1259,7 +1259,7 @@
++ 
++ 		/* Dynamic APFS registers after mockfs in this table. Skip the
++ 		 * fixture and continue to the actual APFS callback. */
++-		if ((marble_apfs_diag == 2 || marble_apfs_diag == 3 || marble_apfs_diag == 4) && !strcmp(vfsp->vfc_name, "mockfs")) {
+++		if ((marble_apfs_diag == 2 || marble_apfs_diag == 3 || marble_apfs_diag == 4 || marble_apfs_diag == 5) && !strcmp(vfsp->vfc_name, "mockfs")) {
++ 			continue;
++ 		}
++ 		mp = vfs_rootmountalloc_internal(vfsp, "root_device");
++@@ -1271,7 +1271,7 @@
++ 			error = VFS_MOUNT(mp, rootvp, 0, ctx);
++ 		}
++ 
++-		if ((marble_apfs_diag == 3 || marble_apfs_diag == 4) && error && !strcmp(vfsp->vfc_name, "apfs")) {
+++		if ((marble_apfs_diag == 3 || marble_apfs_diag == 4 || marble_apfs_diag == 5) && error && !strcmp(vfsp->vfc_name, "apfs")) {
++ 			panic("RAMAPFS stage3 mount errno=%d", error);
++ 		}
++ 		if (marble_apfs_diag == 2 && !strcmp(vfsp->vfc_name, "apfs")) {
++@@ -1410,7 +1410,7 @@
++ 			printf("%s_mountroot failed: %d\n", vfsp->vfc_name, error);
++ 		}
++ 	}
++-	if (marble_apfs_diag == 2 || marble_apfs_diag == 3 || marble_apfs_diag == 4) {
+++	if (marble_apfs_diag == 2 || marble_apfs_diag == 3 || marble_apfs_diag == 4 || marble_apfs_diag == 5) {
++ 		extern volatile int native_apfs_load_status;
++ 		extern volatile uint32_t native_apfs_registered;
++ 		panic("RAMAPFS no root callback load=%d reg=%u", native_apfs_load_status, native_apfs_registered);
+--- /dev/null
++++ b/patches/xnu/marble-stdio-lifecycle.patch
+@@ -0,0 +1,322 @@
++--- a/bsd/kern/kern_exec.c
+++++ b/bsd/kern/kern_exec.c
++@@ -8060,6 +8060,178 @@
++ #include <sys/wait.h>
++ static unsigned marble_ram_expr_stage;
++ static uint64_t marble_ram_expr_pipe_id;
+++#include "marble_stdio_trace.h"
+++#include <arm/thread.h>
+++#include <stdarg.h>
+++
+++struct marble_stdio_view { int lookup; unsigned type, fg, fp; uint64_t id; };
+++struct marble_stdio_inherit { unsigned seen, keep, why, fg, fp, slot, spawn; uintptr_t proc; };
+++struct marble_stdio_close { int fd; unsigned stage, fg, fp, type; uintptr_t kernel, user_lr, proc; };
+++struct marble_stdio_request {
+++ unsigned seen; int fd, frame_error, sig0_error, sig1_error;
+++ uint64_t pc, lr, up[2]; uint32_t sig0[8], sig1[8];
+++};
+++struct marble_stdio_failure {
+++ unsigned seen; int fd, why, error; unsigned nfiles, present, slot, type, fg, fp;
+++ uintptr_t proc, table;
+++};
+++struct marble_stdio_lifecycle {
+++ struct marble_stdio_view post[3]; uintptr_t post_proc, post_table;
+++ struct marble_stdio_inherit inherit[3];
+++ unsigned close_total; struct marble_stdio_close closes[6];
+++ struct marble_stdio_request request; struct marble_stdio_failure failure;
+++};
+++static struct marble_stdio_lifecycle marble_stdio_life;
+++static LCK_SPIN_DECLARE(marble_stdio_life_lock, &proc_lck_grp);
+++
+++/* Stage1 may operate on the replacement proc during the first exec. No proc
+++ * or fileproc pointer is retained for dereference across exec. */
+++static int
+++marble_stdio_context(proc_t p)
+++{
+++ proc_t cur=current_proc();
+++ return (marble_ram_expr_stage==1 || marble_ram_expr_stage==2) &&
+++     cur==initproc && proc_getpid(cur)==1 &&
+++     (marble_ram_expr_stage==1 || p==cur);
+++}
+++static uint64_t
+++marble_stdio_user_lr(void)
+++{
+++ if(marble_ram_expr_stage!=2) return 0;
+++ arm_saved_state_t *s=find_user_regs(current_thread());
+++ return s && is_saved_state64(s) ? get_saved_state_lr(s) : 0;
+++}
+++/* Caller holds fd_lock. These callbacks do not take it, copyin, perform IO,
+++ * sleep, allocate, or dereference a saved proc/file pointer. */
+++void
+++marble_stdio_fdt_note(proc_t p,int fd,int keep,short spawn,unsigned slot,struct fileproc *fp)
+++{
+++ if(fd<0 || fd>2 || !marble_stdio_context(p)) return;
+++ struct marble_stdio_inherit v={0};
+++ v.seen=1;v.keep=!!keep;v.fg=fp->fp_glob->fg_flag;v.fp=fp->fp_flags;
+++ v.slot=slot;v.spawn=(unsigned short)spawn;v.proc=(uintptr_t)p;
+++ if(!keep) {
+++  if(v.fp & FP_CLOEXEC) v.why=1;
+++  else if((spawn & POSIX_SPAWN_CLOEXEC_DEFAULT) && !(slot & UF_INHERIT)) v.why=2;
+++  else v.why=3; /* Sole remaining native branch: MAC inherit returned nonzero. */
+++ }
+++ lck_spin_lock(&marble_stdio_life_lock);
+++ if(!marble_stdio_life.inherit[fd].seen) marble_stdio_life.inherit[fd]=v;
+++ lck_spin_unlock(&marble_stdio_life_lock);
+++}
+++void
+++marble_stdio_close_actual(proc_t p,int fd,struct fileproc *fp,uintptr_t caller)
+++{
+++ if(fd<0 || fd>2 || !marble_stdio_context(p)) return;
+++ struct marble_stdio_close v={.fd=fd,.stage=marble_ram_expr_stage,
+++  .fg=fp->fp_glob->fg_flag,.fp=fp->fp_flags,.type=FILEGLOB_DTYPE(fp->fp_glob),
+++  .kernel=caller,.user_lr=marble_stdio_user_lr(),.proc=(uintptr_t)p};
+++ lck_spin_lock(&marble_stdio_life_lock);
+++ unsigned n=marble_stdio_life.close_total;
+++ if(n<6) marble_stdio_life.closes[n]=v;
+++ if(n<0xffffffffu) marble_stdio_life.close_total++;
+++ lck_spin_unlock(&marble_stdio_life_lock);
+++}
+++void
+++marble_stdio_prepare_fail(proc_t p,int fd,int why,int error,struct fileproc *fp)
+++{
+++ if(fd<0 || fd>2 || !marble_stdio_context(p)) return;
+++ struct filedesc *d=&p->p_fd;
+++ struct marble_stdio_failure v={.seen=1,.fd=fd,.why=why,.error=error,
+++  .nfiles=d->fd_nfiles,.proc=(uintptr_t)p,.table=(uintptr_t)d->fd_ofiles};
+++ if(fd<d->fd_nfiles) {v.present=d->fd_ofiles[fd]!=NULL;v.slot=(unsigned char)d->fd_ofileflags[fd];}
+++ if(fp) {v.fg=fp->fp_glob->fg_flag;v.fp=fp->fp_flags;v.type=FILEGLOB_DTYPE(fp->fp_glob);}
+++ lck_spin_lock(&marble_stdio_life_lock);
+++ if(!marble_stdio_life.failure.seen) marble_stdio_life.failure=v;
+++ lck_spin_unlock(&marble_stdio_life_lock);
+++}
+++static int
+++marble_stdio_signature(uint64_t lr,uint32_t out[8])
+++{
+++ if(lr<0x1000 || lr>=UINT64_C(0xffff000000000000) || (lr & 3)) return EINVAL;
+++ return copyin((user_addr_t)(lr-16),out,32);
+++}
+++/* Only at close_nocancel entry, before fd_lock. Bounded user reads are never
+++ * done while holding either logging lock. Failures cannot replace close. */
+++void
+++marble_stdio_close_request(proc_t p,int fd)
+++{
+++ if(fd<0 || fd>2 || marble_ram_expr_stage!=2 || !marble_stdio_context(p)) return;
+++ lck_spin_lock(&marble_stdio_life_lock);
+++ int seen=marble_stdio_life.request.seen;
+++ lck_spin_unlock(&marble_stdio_life_lock);
+++ if(seen) return;
+++ struct marble_stdio_request v={.seen=1,.fd=fd};
+++ arm_saved_state_t *s=find_user_regs(current_thread());
+++ if(s && is_saved_state64(s)) {
+++  v.pc=get_saved_state_pc(s);v.lr=get_saved_state_lr(s);
+++  uint64_t sp=get_saved_state_sp(s),fp=get_saved_state_fp(s);
+++  for(unsigned i=0;i<2;i++) {
+++   uint64_t frame[2]={0};
+++   if(fp<sp || fp-sp>0x10000 || (fp & 15) || fp>=UINT64_C(0xffff000000000000)) {v.frame_error=EINVAL;break;}
+++   v.frame_error=copyin((user_addr_t)fp,frame,sizeof(frame));
+++   if(v.frame_error) break;
+++   v.up[i]=frame[1];
+++   if(frame[0]<=fp || frame[0]-fp>0x4000) break;
+++   fp=frame[0];
+++  }
+++ } else v.frame_error=EINVAL;
+++ v.sig0_error=marble_stdio_signature(v.lr,v.sig0);
+++ v.sig1_error=marble_stdio_signature(v.up[0],v.sig1);
+++ lck_spin_lock(&marble_stdio_life_lock);
+++ if(!marble_stdio_life.request.seen) marble_stdio_life.request=v;
+++ lck_spin_unlock(&marble_stdio_life_lock);
+++}
+++static void
+++marble_stdio_snapshot_all(proc_t p)
+++{
+++ struct marble_stdio_view v[3]={{0}};
+++ for(int fd=0;fd<3;fd++) {
+++  struct fileproc *fp=NULL;
+++  v[fd].lookup=fp_lookup(p,fd,&fp,0);
+++  if(!v[fd].lookup) {
+++   v[fd].type=FILEGLOB_DTYPE(fp->fp_glob);v[fd].fg=fp->fp_glob->fg_flag;v[fd].fp=fp->fp_flags;
+++   if(v[fd].type==DTYPE_PIPE) v[fd].id=pipe_id((struct pipe *)fp_get_data(fp));
+++   fp_drop(p,fd,fp,0);
+++  }
+++ }
+++ proc_fdlock_spin(p);uintptr_t table=(uintptr_t)p->p_fd.fd_ofiles;proc_fdunlock(p);
+++ lck_spin_lock(&marble_stdio_life_lock);
+++ memcpy(marble_stdio_life.post,v,sizeof(v));marble_stdio_life.post_proc=(uintptr_t)p;marble_stdio_life.post_table=table;
+++ lck_spin_unlock(&marble_stdio_life_lock);
+++}
+++static void
+++marble_stdio_append(char *buf,size_t capacity,size_t *offset,const char *fmt,...)
+++{
+++ if(!capacity || *offset>=capacity-1) return;
+++ size_t remaining=capacity-*offset;
+++ va_list ap;va_start(ap,fmt);int n=vsnprintf(buf+*offset,remaining,fmt,ap);va_end(ap);
+++ if(n>0) *offset+=(size_t)n<remaining?(size_t)n:remaining-1;
+++}
+++static void
+++marble_stdio_dump(char *buf,size_t capacity,size_t *offset)
+++{
+++ struct marble_stdio_lifecycle v;
+++ lck_spin_lock(&marble_stdio_life_lock);v=marble_stdio_life;lck_spin_unlock(&marble_stdio_life_lock);
+++#define M(...) marble_stdio_append(buf,capacity,offset,__VA_ARGS__)
+++ M("post P=%llx T=%llx\n",(unsigned long long)v.post_proc,(unsigned long long)v.post_table);
+++ for(int i=0;i<3;i++) M("p%d l=%d t=%u g=%x f=%x id=%llx\n",i,v.post[i].lookup,v.post[i].type,v.post[i].fg,v.post[i].fp,(unsigned long long)v.post[i].id);
+++ for(int i=0;i<3;i++) {struct marble_stdio_inherit *d=&v.inherit[i];M("e%d seen=%u keep=%u why=%u g=%x f=%x s=%x\n",i,d->seen,d->keep,d->why,d->fg,d->fp,d->slot);}
+++ struct marble_stdio_failure *f=&v.failure;
+++ M("fail seen=%u fd=%d why=%d err=%d n=%u pres=%u slot=%x g=%x f=%x\n",f->seen,f->fd,f->why,f->error,f->nfiles,f->present,f->slot,f->fg,f->fp);
+++ M("fail P=%llx T=%llx\n",(unsigned long long)f->proc,(unsigned long long)f->table);
+++ M("closes=%u (first6)\n",v.close_total);
+++ for(unsigned i=0;i<v.close_total && i<6;i++) {struct marble_stdio_close *c=&v.closes[i];M("c%u fd=%d st=%u g=%x f=%x K=%llx U=%llx\n",i,c->fd,c->stage,c->fg,c->fp,(unsigned long long)c->kernel,(unsigned long long)c->user_lr);}
+++ struct marble_stdio_request *r=&v.request;
+++ M("req seen=%u fd=%d pc=%llx lr=%llx\n",r->seen,r->fd,(unsigned long long)r->pc,(unsigned long long)r->lr);
+++ M("up=%llx/%llx fe=%d se=%d/%d\n",(unsigned long long)r->up[0],(unsigned long long)r->up[1],r->frame_error,r->sig0_error,r->sig1_error);
+++ if(r->seen) {
+++  M("sig0 ");for(unsigned i=0;i<8;i++) M("%08x%s",r->sig0[i],i==7?"\n":" ");
+++  M("sig1 ");for(unsigned i=0;i<8;i++) M("%08x%s",r->sig1[i],i==7?"\n":" ");
+++ }
+++#undef M
+++}
+++
++ 
++ struct marble_pipe_snapshot { int lookup; uint32_t flags; uint64_t id; unsigned same; };
++ static struct marble_pipe_snapshot marble_post_exec_pipe;
++@@ -8174,6 +8346,7 @@
++  error = execve(p, &args, result);
++  if (!error) {
++   marble_pipe_snapshot(current_proc(), &marble_post_exec_pipe);
+++  marble_stdio_snapshot_all(current_proc());
++   marble_ram_expr_stage = 2;
++  }
++  return error;
++@@ -8223,23 +8396,20 @@
++   ns=p->p_exit_reason->osr_namespace;code=p->p_exit_reason->osr_code;
++   const char *text=exit_reason_get_string_desc(p->p_exit_reason);if(text)description=text;
++  }
++- panic("RAMEXPR TRACE stage=%u argc=%d sig=%u status=%u cs=%x\n"
++-   "post l=%d f=%x same=%u id=%llx\nexit l=%d f=%x same=%u id=%llx\n"
++-   "expect=%llx q=%x read=%u errno=%d bytes=%u\nhex=%s\nwrites=%u (first4, prefix snapshots)\n"
++-   "w0 fd=%d err=%d n=%lld c=%d len=%llu hex=%s\n"
++-   "w1 fd=%d err=%d n=%lld c=%d len=%llu hex=%s\n"
++-   "w2 fd=%d err=%d n=%lld c=%d len=%llu hex=%s\n"
++-   "w3 fd=%d err=%d n=%lld c=%d len=%llu hex=%s\n"
++-   "name=%.16s ns=%u code=%llx reason=%.96s",
++-   marble_ram_expr_stage,p->p_argc,(unsigned)WTERMSIG(rv),(unsigned)WEXITSTATUS(rv),proc_getcsflags(p),
++-   marble_post_exec_pipe.lookup,marble_post_exec_pipe.flags,marble_post_exec_pipe.same,(unsigned long long)marble_post_exec_pipe.id,
++-   at_exit.lookup,at_exit.flags,at_exit.same,(unsigned long long)at_exit.id,
++-   (unsigned long long)marble_ram_expr_pipe_id,qualification,read_called,read_error,count,hex,trace.total,
++-   trace.event[0].fd,trace.event[0].error,(long long)trace.event[0].accepted,trace.event[0].copy_error,(unsigned long long)trace.event[0].first_iov_bytes,write_hex[0],
++-   trace.event[1].fd,trace.event[1].error,(long long)trace.event[1].accepted,trace.event[1].copy_error,(unsigned long long)trace.event[1].first_iov_bytes,write_hex[1],
++-   trace.event[2].fd,trace.event[2].error,(long long)trace.event[2].accepted,trace.event[2].copy_error,(unsigned long long)trace.event[2].first_iov_bytes,write_hex[2],
++-   trace.event[3].fd,trace.event[3].error,(long long)trace.event[3].accepted,trace.event[3].copy_error,(unsigned long long)trace.event[3].first_iov_bytes,write_hex[3],
++-   p->p_name,ns,(unsigned long long)code,description);
+++ char message[3072]={0};size_t offset=0;
+++ marble_stdio_append(message,sizeof(message),&offset,"STDIO LIFE s=%u argc=%d sig=%u status=%u cs=%x\n",
+++     marble_ram_expr_stage,p->p_argc,(unsigned)WTERMSIG(rv),(unsigned)WEXITSTATUS(rv),proc_getcsflags(p));
+++ marble_stdio_dump(message,sizeof(message),&offset);
+++ marble_stdio_append(message,sizeof(message),&offset,"exit l=%d g=%x same=%u q=%x read=%u err=%d n=%u\npipehex=%.64s\n",
+++     at_exit.lookup,at_exit.flags,at_exit.same,qualification,read_called,read_error,count,hex);
+++ marble_stdio_append(message,sizeof(message),&offset,"writes=%u (first2 shown, pre-IO prefixes)\n",trace.total);
+++ for(unsigned i=0;i<trace.total && i<2;i++) {
+++  struct marble_write_event *e=&trace.event[i];
+++  marble_stdio_append(message,sizeof(message),&offset,"w%u fd=%d err=%d n=%lld c=%d len=%llu hex=%s\n",
+++      i,e->fd,e->error,(long long)e->accepted,e->copy_error,(unsigned long long)e->first_iov_bytes,write_hex[i]);
+++ }
+++ marble_stdio_append(message,sizeof(message),&offset,"name=%.16s ns=%u code=%llx reason=%.64s\n",p->p_name,ns,(unsigned long long)code,description);
+++ panic("%s",message);
++ }
++ #endif
++ 
++--- a/bsd/kern/kern_descrip.c
+++++ b/bsd/kern/kern_descrip.c
++@@ -724,6 +724,8 @@
++ 	lck_rw_destroy(&fdp->fd_dirs_lock, &proc_dirslock_grp);
++ }
++ 
+++#include "marble_stdio_trace.h"
+++
++ void
++ fdt_exec(proc_t p, kauth_cred_t p_cred, short posix_spawn_flags, thread_t thread, bool in_exec)
++ {
++@@ -790,6 +792,9 @@
++ #endif
++ 		}
++ 
+++#if DEVELOPMENT || DEBUG
+++		marble_stdio_fdt_note(p,i,inherit_file,posix_spawn_flags,(unsigned char)*flagp,fp);
+++#endif
++ 		*flagp = 0; /* clear UF_INHERIT */
++ 
++ 		if (!inherit_file) {
++@@ -1680,6 +1685,9 @@
++ {
++ 	struct filedesc *fdp = &p->p_fd;
++ 	struct fileglob *fg = fp->fp_glob;
+++#if DEVELOPMENT || DEBUG
+++	marble_stdio_close_actual(p,fd,fp,(uintptr_t)__builtin_return_address(0));
+++#endif
++ 
++ #if DIAGNOSTIC
++ 	proc_fdlock_assert(p, LCK_MTX_ASSERT_OWNED);
++@@ -5338,6 +5346,9 @@
++ close_nocancel(proc_t p, kauth_cred_t p_cred, int fd)
++ {
++ 	struct fileproc *fp;
+++#if DEVELOPMENT || DEBUG
+++	marble_stdio_close_request(p,fd);
+++#endif
++ 
++ 	AUDIT_SYSCLOSE(p, fd);
++ 
++--- a/bsd/kern/sys_generic.c
+++++ b/bsd/kern/sys_generic.c
++@@ -517,6 +517,8 @@
++  *  valid_for_random_access:ESPIPE
++  *  valid_for_random_access:ENXIO
++  */
+++#include "marble_stdio_trace.h"
+++
++ static int
++ preparefilewrite(struct proc *p, struct fileproc **fp_ret, int fd, int check_for_pwrite,
++     guardid_t *puguard)
++@@ -531,6 +533,9 @@
++ 	if (puguard) {
++ 		error = fp_lookup_guarded(p, fd, *puguard, &fp, 1);
++ 		if (error) {
+++#if DEVELOPMENT || DEBUG
+++			marble_stdio_prepare_fail(p,fd,1,error,NULL);
+++#endif
++ 			proc_fdunlock(p);
++ 			return error;
++ 		}
++@@ -542,6 +547,9 @@
++ 	} else {
++ 		error = fp_lookup(p, fd, &fp, 1);
++ 		if (error) {
+++#if DEVELOPMENT || DEBUG
+++			marble_stdio_prepare_fail(p,fd,1,error,NULL);
+++#endif
++ 			proc_fdunlock(p);
++ 			return error;
++ 		}
++@@ -570,6 +578,9 @@
++ 	return 0;
++ 
++ out:
+++#if DEVELOPMENT || DEBUG
+++	if(error) marble_stdio_prepare_fail(p,fd,(fp->f_flag & FWRITE)?3:2,error,fp);
+++#endif
++ 	fp_drop(p, fd, fp, 1);
++ 	proc_fdunlock(p);
++ 	return error;
++--- /dev/null
+++++ b/bsd/kern/marble_stdio_trace.h
++@@ -0,0 +1,10 @@
+++#ifndef MARBLE_STDIO_LIFECYCLE_TRACE_H
+++#define MARBLE_STDIO_LIFECYCLE_TRACE_H
+++#if DEVELOPMENT || DEBUG
+++struct fileproc;
+++void marble_stdio_fdt_note(proc_t, int, int, short, unsigned, struct fileproc *);
+++void marble_stdio_close_actual(proc_t, int, struct fileproc *, uintptr_t);
+++void marble_stdio_close_request(proc_t, int);
+++void marble_stdio_prepare_fail(proc_t, int, int, int, struct fileproc *);
+++#endif
+++#endif
+--- /dev/null
++++ b/patches/xnu/marble-stdio-thread-state-decl.patch
+@@ -0,0 +1,12 @@
++--- a/bsd/kern/kern_exec.c
+++++ b/bsd/kern/kern_exec.c
++@@ -8061,7 +8061,8 @@
++ static unsigned marble_ram_expr_stage;
++ static uint64_t marble_ram_expr_pipe_id;
++ #include "marble_stdio_trace.h"
++-#include <arm/thread.h>
+++#include <mach/arm/thread_status.h>
+++extern arm_saved_state_t *find_user_regs(thread_t);
++ #include <stdarg.h>
++ 
++ struct marble_stdio_view { int lookup; unsigned type, fg, fp; uint64_t id; };
+--- a/patches/xnu/series
++++ b/patches/xnu/series
+@@ -7,3 +7,16 @@
+ marble-md0-force4096.patch
+ marble-root-unverified.patch
+ native-display-personality.patch
++
++marble-ram-apfs-diagnostic.patch
++marble-ram-apfs-ready.patch
++marble-ram-expr-exec.patch
++marble-ram-expr-fd-safety.patch
++marble-ram-expr-trace.patch
++marble-stdio-lifecycle.patch
++marble-stdio-thread-state-decl.patch
++marble-stdio-child.patch
++marble-launchd-entry.patch
++marble-launchd-stdio.patch
++marble-launchd-bootstrap.patch
++marble-launchd-bootstrap-errors.patch

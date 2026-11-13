@@ -1,0 +1,40 @@
+version = 1
+[boot]
+timeout = -1
+default = "tools"
+[kits]
+autoload = false
+[[entry]]
+id = "lderr64"
+title = "Original launchd error detail (64 returns)"
+type = "xnu"
+path = "Payloads/kernel.macho"
+args = "-v serial=3 debug=0x14e cpus=1 sheng-pmgr=2 rd=md0 offline-apfs-load=1 marble-apfs-diag=6 marble-launchd-budget=4096 marble-launchd-follow=3 marble-bootstrap-budget=64"
+initrd = "Payloads/restore-21H461.packed"
+[[entry]]
+id = "ldboot256"
+title = "Original launchd bootstrap256 (after error64)"
+type = "xnu"
+path = "Payloads/kernel.macho"
+args = "-v serial=3 debug=0x14e cpus=1 sheng-pmgr=2 rd=md0 offline-apfs-load=1 marble-apfs-diag=6 marble-launchd-budget=4096 marble-launchd-follow=3 marble-bootstrap-budget=256"
+initrd = "Payloads/restore-21H461.packed"
+[[entry]]
+id = "logstatus"
+title = "XNU log storage status"
+type = "efi"
+path = "Tools/log-status.efi"
+[[entry]]
+id = "reset"
+title = "Restart"
+type = "action"
+action = "reset"
+[[entry]]
+id = "shutdown"
+title = "Power off"
+type = "action"
+action = "shutdown"
+[[entry]]
+id = "tools"
+title = "Tools"
+type = "action"
+action = "tools"

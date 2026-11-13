@@ -1,0 +1,402 @@
+--- a/package/UniXNUPkg/Driver/AdvancedLogDxe/AdvancedLogDxe.c
++++ b/package/UniXNUPkg/Driver/AdvancedLogDxe/AdvancedLogDxe.c
+@@ -10,9 +10,9 @@
+ **/
+ 
+ #include <Uefi.h>
+-#include <Protocol/AdvancedLogger.h>
++#include <Library/MarbleRamLog.h>
+ #include <Protocol/UniXNUMenuPlugin.h>
+-#include <Library/AdvancedLoggerAccessLib.h>
++
+ #include <Library/BaseMemoryLib.h>
+ #include <Library/DebugLib.h>
+ #include <Library/MemoryAllocationLib.h>
+@@ -408,57 +408,25 @@
+ 
+ STATIC
+ CHAR8 *
+-CollectLog (
+-  OUT UINTN  *LogLen
+-  )
+-{
+-  ADVANCED_LOGGER_ACCESS_MESSAGE_LINE_ENTRY  Line;
+-  EFI_STATUS                                 Status;
+-  CHAR8                                      *Log;
+-  CHAR8                                      *New;
+-  UINTN                                      Len;
+-  UINTN                                      Cap;
+-  UINTN                                      NewCap;
+-
+-  Log = NULL;
+-  Len = 0;
+-  Cap = 0;
+-  ZeroMem (&Line, sizeof (Line));
+-
+-  for ( ; ;) {
+-    Status = AdvancedLoggerAccessLibGetNextFormattedLine (&Line);
+-    if (Status == EFI_END_OF_FILE) {
+-      break;
+-    }
+-
+-    if (EFI_ERROR (Status) || (Line.MessageLen == 0)) {
+-      break;
+-    }
+-
+-    if ((Len + Line.MessageLen + 1) > Cap) {
+-      NewCap = MAX (Len + Line.MessageLen + 1, Cap * 2);
+-      NewCap = MAX (NewCap, (UINTN)4096);
+-      if (Log == NULL) {
+-        New = AllocatePool (NewCap);
+-      } else {
+-        New = ReallocatePool (Cap, NewCap, Log);
+-      }
+-
+-      if (New == NULL) {
+-        break;
+-      }
+-
+-      Log = New;
+-      Cap = NewCap;
+-    }
+-
+-    CopyMem (Log + Len, Line.Message, Line.MessageLen);
+-    Len += Line.MessageLen;
+-  }
+-
+-  AdvancedLoggerAccessLibReset (&Line);
+-  *LogLen = Len;
+-  return Log;
++CollectLog (OUT UINTN *Length)
++{
++  volatile MARBLE_RAM_LOG *Log = MARBLE_LOG_PTR;
++  UINT64 Total;
++  UINTN Count, Index, Prefix;
++  CHAR8 *Text;
++  *Length = 0;
++  if (Log->Magic != MARBLE_LOG_MAGIC || Log->Version != 1) return NULL;
++  Total = Log->Total;
++  Count = (UINTN)MIN (Total, MARBLE_LOG_CAPACITY);
++  Text = AllocatePool (Count + 256);
++  if (Text == NULL) return NULL;
++  Prefix = AsciiSPrint (Text, 256, "UXTRACE RAMLOG v1 el=%lu fdt=0x%lx stages=0x%lx total=%lu retained=%u dropped=%lu\r\n",
++    Log->EntryEl >> 2, Log->EntryFdt, Log->Reserved[0], Total, (UINT32)Count, Total - Count);
++  for (Index = 0; Index < Count; Index++)
++    Text[Prefix + Index] = Log->Data[(Total - Count + Index) % MARBLE_LOG_CAPACITY];
++  Text[Prefix + Count] = 0;
++  *Length = Prefix + Count;
++  return Text;
+ }
+ 
+ STATIC
+@@ -496,7 +464,7 @@
+   if (LogLen == 0) {
+     Fill (Gop, Content->X, Content->Y, Content->Width, Content->Height, mBackground);
+     if (DrawStatus != NULL) {
+-      DrawStatus (This, 0, L"Advanced Logger: no log");
++      DrawStatus (This, 0, L"Marble RAM log: empty");
+     }
+ 
+     gBS->Stall (NO_LOG_STALL_MS * 1000);
+@@ -599,7 +567,7 @@
+ STATIC UNIXNU_MENU_PLUGIN_PROTOCOL  mAdvancedLogPlugin = {
+   UNIXNU_MENU_PLUGIN_PROTOCOL_SIGNATURE,
+   UNIXNU_MENU_PLUGIN_PROTOCOL_VERSION,
+-  L"Advanced Logger",
++  L"Marble RAM log",
+   AdvancedLogRun
+ };
+ 
+--- a/package/UniXNUPkg/Driver/AdvancedLogDxe/AdvancedLogDxe.inf
++++ b/package/UniXNUPkg/Driver/AdvancedLogDxe/AdvancedLogDxe.inf
+@@ -23,12 +23,10 @@
+ 
+ [Packages]
+   MdePkg/MdePkg.dec
+-  AdvLoggerPkg/AdvLoggerPkg.dec
+   MsGraphicsPkg/MsGraphicsPkg.dec
+   UniXNUPkg/UniXNUPkg.dec
+ 
+ [LibraryClasses]
+-  AdvancedLoggerAccessLib
+   BaseLib
+   BaseMemoryLib
+   DebugLib
+@@ -45,8 +43,7 @@
+   gUniXNUPkgTokenSpaceGuid.PcdUniXNUDeviceModel
+ 
+ [Protocols]
+-  gAdvancedLoggerProtocolGuid       ## CONSUMES
+   gUniXNUMenuPluginProtocolGuid     ## PRODUCES
+ 
+ [Depex]
+-  gAdvancedLoggerProtocolGuid
++  TRUE
+--- /dev/null
++++ b/package/UniXNUPkg/Include/Library/MarbleRamLog.h
+@@ -0,0 +1,43 @@
++/* Local marble diagnostic candidate. Volatile RAM only, never a disk writer. */
++#ifndef MARBLE_RAM_LOG_H
++#define MARBLE_RAM_LOG_H
++#define MARBLE_LOG_MAGIC 0x31474F4CUL /* LOG1 */
++#define MARBLE_LOG_CAPACITY (0x10000 - 64)
++typedef struct {
++  UINT32 Magic;
++  UINT32 Version;
++  UINT64 Total;
++  UINT64 EntryFdt;
++  UINT64 EntryEl;
++  UINT64 Reserved[4];
++  UINT8 Data[MARBLE_LOG_CAPACITY];
++} MARBLE_RAM_LOG;
++#ifndef MARBLE_LOG_PTR
++#define MARBLE_LOG_PTR ((volatile MARBLE_RAM_LOG *)(UINTN)0xA75F0000)
++#endif
++STATIC inline VOID MarbleLogReset(UINT64 Fdt, UINT64 El) {
++  volatile MARBLE_RAM_LOG *Log = MARBLE_LOG_PTR;
++  Log->Magic = 0;
++  Log->Version = 1;
++  Log->Total = 0;
++  Log->EntryFdt = Fdt;
++  Log->EntryEl = El;
++  for (UINTN I = 0; I < 4; I++) Log->Reserved[I] = 0;
++  Log->Magic = MARBLE_LOG_MAGIC;
++}
++/* Caller serializes writes by masking local IRQs; diagnostic firmware uses BSP only. */
++STATIC inline VOID MarbleLogAppend(CONST UINT8 *Data, UINTN Size) {
++  volatile MARBLE_RAM_LOG *Log = MARBLE_LOG_PTR;
++  if (Log->Magic != MARBLE_LOG_MAGIC || Log->Version != 1) return;
++  for (UINTN I = 0; I < Size; I++) {
++    UINT64 At = Log->Total;
++    Log->Data[At % MARBLE_LOG_CAPACITY] = Data[I];
++    Log->Total = At + 1;
++  }
++}
++STATIC inline VOID MarbleLogStage(UINTN Stage) {
++  volatile MARBLE_RAM_LOG *Log = MARBLE_LOG_PTR;
++  if (Log->Magic == MARBLE_LOG_MAGIC && Log->Version == 1 && Stage < 64)
++    Log->Reserved[0] |= (UINT64)1 << Stage;
++}
++#endif
+--- a/package/UniXNUPkg/Library/UniXNULib/Config.c
++++ b/package/UniXNUPkg/Library/UniXNULib/Config.c
+@@ -35,7 +35,9 @@
+ STATIC CONST CHAR8  mBuiltinConfig[] =
+   "version = 1\n"
+   "[boot]\n"
+-  "timeout = 10\n"
++  "timeout = -1\n"
++  "fallback_timeout = 600\n"
++  "default = \"tools\"\n"
+   "rotate = 2\n"
+   "[ui]\n"
+   "title = \"UniXNU\"\n"
+--- a/package/UniXNUPkg/Library/UniXNULib/Main.c
++++ b/package/UniXNUPkg/Library/UniXNULib/Main.c
+@@ -6,6 +6,7 @@
+ **/
+ 
+ #include "Internal.h"
++#include <Library/MarbleRamLog.h>
+ 
+ #include <Protocol/SerialIo.h>
+ 
+@@ -44,6 +45,33 @@
+     Size = AsciiStrLen (Line);
+     mSerial->Write (mSerial, &Size, Line);
+   }
++}
++
++// Diagnostic snapshot only. No assumed high-RAM range is added to the firmware map.
++STATIC VOID MarbleMemorySnapshot (VOID)
++{
++  EFI_MEMORY_DESCRIPTOR *Map;
++  UINTN Bytes = 0, Key, Stride = 0, Capacity, Offset, Count = 0;
++  UINT32 Version;
++  EFI_STATUS Status;
++  Status = gBS->GetMemoryMap (&Bytes, NULL, &Key, &Stride, &Version);
++  if (Status != EFI_BUFFER_TOO_SMALL || Bytes > 0x80000 || Stride < sizeof (*Map)) {
++    UniXNULog ("UXTRACE memory-map query %r", Status); return;
++  }
++  Capacity = Bytes + 4096;
++  Map = AllocatePool (Capacity);
++  if (Map == NULL) return;
++  Bytes = Capacity;
++  Status = gBS->GetMemoryMap (&Bytes, Map, &Key, &Stride, &Version);
++  UniXNULog ("UXTRACE memory-map snapshot %r stride=%lu bytes=%lu (buffer allocated)", Status, Stride, Bytes);
++  if (!EFI_ERROR (Status) && Bytes <= Capacity && Stride >= sizeof (*Map)) {
++    for (Offset = 0; Offset + Stride <= Bytes && Count < 256; Offset += Stride, Count++) {
++      EFI_MEMORY_DESCRIPTOR *D = (EFI_MEMORY_DESCRIPTOR *)((UINT8 *)Map + Offset);
++      UniXNULog ("UXTRACE mem type=%u base=0x%lx pages=0x%lx attr=0x%lx", D->Type, D->PhysicalStart, D->NumberOfPages, D->Attribute);
++    }
++    if (Offset < Bytes) UniXNULog ("UXTRACE memory-map truncated");
++  }
++  FreePool (Map);
+ }
+ 
+ EFI_STATUS
+@@ -66,6 +94,7 @@
+   // A boot manager waits for people; the 5 minute BDS watchdog does not.
+   //
+   gBS->SetWatchdogTimer (0, 0, 0, NULL);
++  MarbleLogStage (4);
+   UniXNULogInit ();
+   UniXNULog (
+     "UniXNU %a starting as %a, firmware %s rev 0x%x",
+@@ -81,6 +110,8 @@
+   if (Host == UniXNUHostFirmware) {
+     UniXNUConnectAll ();
+   }
++
++  MarbleMemorySnapshot ();
+ 
+   UniXNUConfigLoad (ImageHandle, &Config);
+   UniXNULog (
+@@ -104,7 +135,11 @@
+   UniXNUInjectDrivers (ImageHandle, &Config, &Stats);
+   UniXNUInjectAcpi (&Config, &Stats);
+ 
++  MarbleLogStage (5);
++  UniXNULog ("UXTRACE GOP init enter");
+   UniXNUUiInit (&Config, &Ui);
++  MarbleLogStage (6);
++  UniXNULog ("UXTRACE menu enter");
+ 
+   UnicodeSPrint (
+     Ui.Info,
+--- a/package/UniXNUPkg/Library/UniXNULib/Menu.c
++++ b/package/UniXNUPkg/Library/UniXNULib/Menu.c
+@@ -12,6 +12,7 @@
+ **/
+ 
+ #include "Internal.h"
++#include <Library/MarbleRamLog.h>
+ 
+ #define TICK_MS             100
+ #define DEFAULT_ROTATE_SEC  2
+@@ -139,6 +140,7 @@
+     UniXNUUiDrawStatus (Ui, 2, Ui->Notice);
+   }
+ 
++  MarbleLogStage (7);
+   UniXNULog (
+     "menu: shown %u entries, default %u '%a', timeout %d ms, input %a, rotate %u ms",
+     (UINT32)Count,
+--- a/scripts/build-arm-driver.py
++++ b/scripts/build-arm-driver.py
+@@ -1,6 +1,7 @@
+ #!/usr/bin/env python3
+ """Compile the generic platform expert against the actual source-kernel ABI."""
+ import argparse
++import os
+ import json
+ import tomllib
+ from pathlib import Path
+@@ -88,8 +89,12 @@
+     if args.verified_root_bundle:
+         command += ['-DNATIVE_VERIFIED_BLOCK_MULTI_POLICY=1']
+ if component == 'NativeUfs':
+-    command += ['-I', str(ROOT / 'kits/VerifiedRoot/include'), '-I', str(ROOT / 'drivers/VirtioMmioBlock'),
+-                '-DNATIVE_VERIFIED_BLOCK=1', '-DNATIVE_VERIFIED_BLOCK_MULTI_POLICY=1', '-mgeneral-regs-only']
++    command += ['-mgeneral-regs-only']
++    if os.environ.get('XNU_NATIVE_UFS_FULL') == '1':
++        command += ['-I', str(ROOT / 'kits/VerifiedRoot/include'), '-I', str(ROOT / 'drivers/VirtioMmioBlock'),
++                    '-DNATIVE_VERIFIED_BLOCK=1', '-DNATIVE_VERIFIED_BLOCK_MULTI_POLICY=1']
++    else:
++        command += ['-DNATIVE_UFS_PROBE_ONLY=1']
+ if component=='NativeOfflineGPU':
+     command += ['-I',str(ROOT/'drivers/VirtioMmioConsole')]
+ if component in ('NativeLegacyDisplay','NativeHidInput'):
+--- a/scripts/linux/prepare-xnu.py
++++ b/scripts/linux/prepare-xnu.py
+@@ -50,7 +50,34 @@
+     print(f'[info] {message}', file=sys.stderr)
+ 
+ 
++def rewrite_host_tool_paths(root):
++    # This lane uses private shims, avoiding global /usr/bin replacements.
++    # This function runs only in the Linux preparation path.
++    path = root / 'makedefs/MakeInc.cmd'
++    text = path.read_text()
++    updated = text
++    for name in ('xcrun', 'plutil', 'codesign'):
++        updated = updated.replace('/usr/bin/' + name, name)
++    if updated != text:
++        path.write_text(updated)
++        info('resolved XNU host shims through lane-local PATH')
++
++
++def rewrite_csh_interpreters(root):
++    # GNU env -S retains csh's -f flag while finding the private tcsh on PATH.
++    for path in (root / 'SETUP').rglob('*'):
++        if not path.is_file():
++            continue
++        data = path.read_bytes()
++        old = b'#!/bin/csh -f\n'
++        if data.startswith(old):
++            path.write_bytes(b'#!/usr/bin/env -S tcsh -f\n' + data[len(old):])
++            info(f'resolved private tcsh for {path.relative_to(root)}')
++
++
+ def rewrite_sources():
++    rewrite_csh_interpreters(XNU)
++    rewrite_host_tool_paths(XNU)
+     # bsd/kern/makesyscalls.sh writes `\(sy_call_t *\)` inside an awk string. BSD awk and gawk drop the unknown
+     # escape; Debian's default mawk keeps the backslash, and init_sysent.c does not compile. The escape is bogus
+     # either way: remove it, and any generated file that carries it.
+--- a/scripts/unixnu/bootimg.py
++++ b/scripts/unixnu/bootimg.py
+@@ -47,12 +47,21 @@
+     work = scratch / 'device.dtb'
+     work.write_bytes(dtb)
+     for node in nodes:
+-        run([fdtput, '-c', work, node['path']], capture=True)
++        try:
++            run([fdtput, '-c', work, node['path']], capture=True)
++        except Error as error:
++            # fdtput -c is create-only. A board may add properties to a node
++            # the firmware DTB already provides (for example /chosen).
++            if 'FDT_ERR_EXISTS' not in str(error):
++                raise
+         for prop in node.get('props', []):
+             values = prop['value'] if isinstance(prop['value'], list) else [prop['value']]
+-            run([fdtput, '-t', prop.get('type', 's'), work, node['path'], prop['name'], *[str(v) for v in values]], capture=True)
+-            got = run([fdtget, '-t', prop.get('type', 's'), work, node['path'], prop['name']], capture=True).split()
+             kind = prop.get('type', 's')
++            # TOML already decodes 0x literals to ints. fdtput -t x parses
++            # every supplied cell as hexadecimal, so decimal str(int) is wrong.
++            encoded = [format(int(str(v), 0), 'x') for v in values] if kind == 'x' else [str(v) for v in values]
++            run([fdtput, '-t', kind, work, node['path'], prop['name'], *encoded], capture=True)
++            got = run([fdtget, '-t', kind, work, node['path'], prop['name']], capture=True).split()
+             if kind in ('x', 'i', 'u') and [int(v, 16 if kind == 'x' else 10) for v in got] != [int(str(v), 0) for v in values]:
+                 raise Error(f'dtb node {node["path"]} property {prop["name"]} did not round-trip')
+     return work.read_bytes()
+--- a/scripts/unixnu/kernel.py
++++ b/scripts/unixnu/kernel.py
+@@ -66,11 +66,12 @@
+     toolchain = Path(os.environ.get('UNIXNU_TOOLCHAIN', '/opt/unixnu-linux'))
+     clt, xctoolchain = toolchain / 'CommandLineTools/usr', toolchain / 'XcodeDefault.xctoolchain/usr'
+     for path in (toolchain / 'llvm/bin/clang', clt / 'bin/ld', clt / 'bin/xnu-host-cc', clt / 'libexec/migcom',
+-                 xctoolchain / 'bin/iig', Path('/usr/bin/xcrun'), toolchain / 'bin/lzfse'):
++                 xctoolchain / 'bin/iig', toolchain / 'shims/xcrun', toolchain / 'shims/plutil',
++                 toolchain / 'shims/codesign', toolchain / 'bin/lzfse'):
+         if not path.exists():
+             raise Error(f'{path} missing; run "sudo scripts/linux/setup-toolchain.py {toolchain}"')
+     fakeroot = ctx.tree / '.cache/fakeroot'
+-    return {'PATH': os.pathsep.join([str(clt / 'bin'), str(toolchain / 'bin'), os.environ.get('PATH', '')]),
++    return {'PATH': os.pathsep.join([str(toolchain / 'shims'), str(clt / 'bin'), str(toolchain / 'bin'), os.environ.get('PATH', '')]),
+             'LC_ALL': 'C', 'CLT_PREFIX': str(clt), 'XCTOOLCHAIN_PREFIX': str(xctoolchain),
+             'XNU_TOOLCHAIN_BIN': f'{clt / "bin"} {xctoolchain / "bin"}',
+             'UNIXNU_SDKROOT': str(fakeroot), 'UNIXNU_SDK_VERSION': '17.0',
+--- a/scripts/unixnu/payload.py
++++ b/scripts/unixnu/payload.py
+@@ -59,7 +59,8 @@
+     image.unlink(missing_ok=True)
+     env = dict(os.environ, MTOOLS_SKIP_CHECK='1', TZ='UTC')
+     sectors = size_mib * 2048
+-    run(['mformat', '-C', '-F', '-T', str(sectors), '-v', label, '-N', '53484e47', '-i', image, '::'], env=env, capture=True)
++    # Let mtools select a valid FAT type; marble's upstream port records require FAT16 here.
++    run(['mformat', '-C', '-T', str(sectors), '-v', label, '-N', '53484e47', '-i', image, '::'], env=env, capture=True)
+     for entry in sorted(stage.iterdir()):
+         run(['mcopy', '-i', image, '-s', '-Q', '-m', entry, '::/'], env=env, capture=True)
+ 

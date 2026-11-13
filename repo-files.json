@@ -1,0 +1,140 @@
+{
+  "schema": 1,
+  "files": [
+    {
+      "path": ".gitattributes",
+      "bytes": 8,
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 512,
+      "sha256": "32a211cedcbb6b93e464f00cf0d6500a1070cd4a92be4c77ef47a284232b8067"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 2673,
+      "sha256": "5b1d3d911103cb0f41641ec0964c5ac1f7e229f57aa072b6ac38bae913a1307b"
+    },
+    {
+      "path": "LICENSES/Mu-Silicium-LICENSE",
+      "bytes": 1884,
+      "sha256": "2b031880c646006165194888f9814806719ab4c91c26d330c4eb71e1983f0187"
+    },
+    {
+      "path": "LICENSES/XNU-APPLE_LICENSE",
+      "bytes": 19829,
+      "sha256": "e5881019d8766c1e88a5fe1dbca4ba40c78011d41fcb18f6e9f50df60182685b"
+    },
+    {
+      "path": "NOTICE.md",
+      "bytes": 1134,
+      "sha256": "66c74220a09788f3c97888574bc2eb657c439c1d1b88ad4653ca949762659622"
+    },
+    {
+      "path": "README.md",
+      "bytes": 2233,
+      "sha256": "e2152ded72884250645a7e1010eee63ec72c236c7cdb145f0753b64ed85143dd"
+    },
+    {
+      "path": "dependencies.json",
+      "bytes": 2106,
+      "sha256": "821bd57d63319052f5b0154bd9f62dce29d4bd9900e4dc2551904c2f46e013bb"
+    },
+    {
+      "path": "docs/DEVICE-TEST.zh.md",
+      "bytes": 2436,
+      "sha256": "908f28cfebbf65a86d987fe4ca5390de4a6f8d846615cc7671ec67a70c1bc27d"
+    },
+    {
+      "path": "docs/NEXT.zh.md",
+      "bytes": 1461,
+      "sha256": "4206e0560796d45973dadfce93919329e2d811b3f5d294dd785b801e7c95f337"
+    },
+    {
+      "path": "docs/PROGRESS.zh.md",
+      "bytes": 2916,
+      "sha256": "5d67187b06ed74cd9823ce49b68afef4494ea18ac6691090418e07a23406d93f"
+    },
+    {
+      "path": "docs/PUBLICATION.zh.md",
+      "bytes": 1542,
+      "sha256": "09307c876def902d2aa059e6c8490974dcf8b3d422c11d41c2eac5f163200bf2"
+    },
+    {
+      "path": "docs/REPRODUCE.zh.md",
+      "bytes": 5638,
+      "sha256": "4f91a6f975a97ed34962ee7efa0dc5e187f81d5319387d1a7cade607ebab629a"
+    },
+    {
+      "path": "examples/marble-ram-apfs_defconfig",
+      "bytes": 1181,
+      "sha256": "86ea5e4421991b1f8487c087bfdbfd00fc191bcf2639961bd3709aa0727f5ea9"
+    },
+    {
+      "path": "examples/pac-codegen.S",
+      "bytes": 205,
+      "sha256": "ba11b854b06576dfa1d5490ad9b0cb6fb9858c1145e1ea02dd84161b1cd30265"
+    },
+    {
+      "path": "examples/unixnu.toml",
+      "bytes": 1093,
+      "sha256": "64eb626e2824c6b831a3a11c44a01eef22ae90ece74e77fd3658bd63cb8f6bf6"
+    },
+    {
+      "path": "examples/xnu-series",
+      "bytes": 633,
+      "sha256": "1ab6796618730fbee2278d5afa327417e88584b4bce1990087f94b4eaa549951"
+    },
+    {
+      "path": "host-tests/bootstrap-helper.c.inc",
+      "bytes": 12673,
+      "sha256": "ddc597328188d604f509189e5b34b63fc11e026937d133dcaec2eb2ac8a1ea33"
+    },
+    {
+      "path": "host-tests/test-observer.c",
+      "bytes": 9837,
+      "sha256": "648cec4b4ae87818a10d71f107d3b2866d1a4fa8e041cb5451488c1d6d94de2b"
+    },
+    {
+      "path": "host-tests/test_decode_log.py",
+      "bytes": 1500,
+      "sha256": "49a61881825fc9f009826250b2a029ebc04d5388831d1c32bd5f522034e1afbf"
+    },
+    {
+      "path": "patches/board-runtime-overlay.patch",
+      "bytes": 104095,
+      "sha256": "b1acd1ce6fa4509b8ff05e9a00bab53d34e3f3853dc580cc04ee2c56b6d61f55"
+    },
+    {
+      "path": "patches/overlay-inputs.json",
+      "bytes": 5598,
+      "sha256": "67883b6cb1dd75079f1c0a854d91d3de12bfb996333a7ad21324217e238cec39"
+    },
+    {
+      "path": "patches/unixnu-host-menu-overlay.patch",
+      "bytes": 14845,
+      "sha256": "79017f48217d9e95661ecab5ddb33410d5ce9dd05b764648f78653ffb92c4095"
+    },
+    {
+      "path": "tools/check_overlays.py",
+      "bytes": 976,
+      "sha256": "f77bdcbd6f96dc2f16a0ea17188e90f5e833fabd5012f4e85ed5e37b9ef005af"
+    },
+    {
+      "path": "tools/decode_log.py",
+      "bytes": 3184,
+      "sha256": "df9a9cbdae326ce65a4c91e3d007f28e6450385bfc082f2c90bcb9e001e9e843"
+    },
+    {
+      "path": "tools/run-host-checks.sh",
+      "bytes": 801,
+      "sha256": "3430c57d4e16e76c93e62f5ea54cb124927ea922c9b51ab39b6627b5de762b3e"
+    },
+    {
+      "path": "tools/verify_manifest.py",
+      "bytes": 793,
+      "sha256": "003fcb24e42efe09a2a73f55fb218e431f8a705cf6c4daa875a174ab3befb9cb"
+    }
+  ]
+}

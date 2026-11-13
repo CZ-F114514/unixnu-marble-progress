@@ -1,0 +1,143 @@
+{
+  "board_base": "78f4e7bf00e88129f8b6ef5680d81770d386832d",
+  "unixnu_base": "04b4e558bcded5213c2d802984862dc062f28257",
+  "board": [
+    {
+      "path": "board.toml",
+      "before": "420344426208080310ba8dc6ca6fae4beb8c1dbc38d19813ebcf0ae7bc2cdf64",
+      "after": "d362932e97a9b1f6ed04d622ecaabe21fb55f12903aae09204919643f4a1fc17"
+    },
+    {
+      "path": "configs/marble-ram-apfs_defconfig",
+      "before": null,
+      "after": "86ea5e4421991b1f8487c087bfdbfd00fc191bcf2639961bd3709aa0727f5ea9"
+    },
+    {
+      "path": "dts/marble.dts",
+      "before": "0b880664159316709849b8f48590199d030d38d659a8a28214ac9e2823254bfb",
+      "after": "6734cb0abff6b15737231b13e29b3bfc143e3a467fd413ed4e273fa07996b923"
+    },
+    {
+      "path": "patches/xnu/marble-launchd-bootstrap-errors.patch",
+      "before": null,
+      "after": "f79fccc348b986d693bfc7db97dfbededfa54ddf6ea310521304ab8452e20ac1"
+    },
+    {
+      "path": "patches/xnu/marble-launchd-bootstrap.patch",
+      "before": null,
+      "after": "15da865fce85e8f368b71fd5365faa68757bb110e296a258e15912eca08c4779"
+    },
+    {
+      "path": "patches/xnu/marble-launchd-entry.patch",
+      "before": null,
+      "after": "bd37346d7bcb2150e1b6c8cefad874c0d1aa9d0760522ddd72a72ef5f28e5528"
+    },
+    {
+      "path": "patches/xnu/marble-launchd-stdio.patch",
+      "before": null,
+      "after": "f4375d26141b9251695621b113d334781a0066404db8d73d8f9b40f2450b2d27"
+    },
+    {
+      "path": "patches/xnu/marble-ram-apfs-diagnostic.patch",
+      "before": null,
+      "after": "f1e9c8c8a3b03a79982900d28822d9b5fff9f317971ddef3684f9934d0199ca1"
+    },
+    {
+      "path": "patches/xnu/marble-ram-apfs-ready.patch",
+      "before": null,
+      "after": "4d552981fc17f9a2a478bff8a1645150fc55bb0f5bb00136b3b5a87b3a6dec83"
+    },
+    {
+      "path": "patches/xnu/marble-ram-expr-exec.patch",
+      "before": null,
+      "after": "23047333bfa5232e1e7e038c05af03f838846f80f26aedd746f20672b2504b06"
+    },
+    {
+      "path": "patches/xnu/marble-ram-expr-fd-safety.patch",
+      "before": null,
+      "after": "d449b08f241d1410df4cf8dd7b27b75285917f8adeea160074b0b632ae46da9e"
+    },
+    {
+      "path": "patches/xnu/marble-ram-expr-trace.patch",
+      "before": null,
+      "after": "39a048f61ba2c62da3f1aad47a214b3ce386b1f17963fa65d29e7d586a979800"
+    },
+    {
+      "path": "patches/xnu/marble-stdio-child.patch",
+      "before": null,
+      "after": "422f9334cbade1f0fe37f0f8129a72518bdb42f04051952da7bfed4cc2b33e5f"
+    },
+    {
+      "path": "patches/xnu/marble-stdio-lifecycle.patch",
+      "before": null,
+      "after": "fa2015ec5e59ac7762f016080be7e29bd58b99a92db35f50fc6e80a6f1d36005"
+    },
+    {
+      "path": "patches/xnu/marble-stdio-thread-state-decl.patch",
+      "before": null,
+      "after": "a7958bc0260dd744125adc5009c42fb389efdd680f09f375f481c585138995d4"
+    },
+    {
+      "path": "patches/xnu/series",
+      "before": "0c5a9fe18e3ab1b946450d6dc23861b77909be59412dcef9ee206c2a340e8cda",
+      "after": "1ab6796618730fbee2278d5afa327417e88584b4bce1990087f94b4eaa549951"
+    }
+  ],
+  "unixnu": [
+    {
+      "path": "package/UniXNUPkg/Driver/AdvancedLogDxe/AdvancedLogDxe.c",
+      "before": "aa76c504a222cb79982dee09ab3cb913b33382da19cf07c68b99ddd9cf9d3745",
+      "after": "d6f02530565d3fa669632b36a8b8509631650d975c2a85cf9fefc7afd65b91ff"
+    },
+    {
+      "path": "package/UniXNUPkg/Driver/AdvancedLogDxe/AdvancedLogDxe.inf",
+      "before": "77dced57e7fad55121dbab8241db5bf92e2f31e396925bac91b65d2e5649b2de",
+      "after": "dcce169c28cacdc6c204a3c9b01b7add6a73f294d6653d315ddc86a241d30a60"
+    },
+    {
+      "path": "package/UniXNUPkg/Include/Library/MarbleRamLog.h",
+      "before": null,
+      "after": "73fa37be1bdd713f2e9446a5073e9e0e391611a98137990e3ff1b517c436429b"
+    },
+    {
+      "path": "package/UniXNUPkg/Library/UniXNULib/Config.c",
+      "before": "c070b2eb1c4922df345a2f830c5f2c420bafd11dde759fee2d2ce4f3be3923c5",
+      "after": "1f9e1593b23a7f2d8773959887f0a6af2133f5a82ab8ee641d6ba6c872b22684"
+    },
+    {
+      "path": "package/UniXNUPkg/Library/UniXNULib/Main.c",
+      "before": "747e2b7a64636a6ffb006079d744338fe18a5313ad1b0df83ea13d55e53ef95e",
+      "after": "258e807793a4bd55f4689e6b64229bc065a3b17aa66d74dee11b5b99763b84d3"
+    },
+    {
+      "path": "package/UniXNUPkg/Library/UniXNULib/Menu.c",
+      "before": "55584eaae32fab3c25afe390c785310f7769512a17d5b84c7b7be43d3d50ec5b",
+      "after": "c1b610e980b1d503f5579f437e71d285bd125b173c8564fb399cec2d743426c5"
+    },
+    {
+      "path": "scripts/build-arm-driver.py",
+      "before": "0b7d210547a9a8eddcad2026b3578aa1e2eca00c9dcd53d0ca3956faa1f870e7",
+      "after": "a85d1806d36280ec471586766c79711e8d0a248521f2e3793465fa2cc32cf700"
+    },
+    {
+      "path": "scripts/linux/prepare-xnu.py",
+      "before": "6d6b4f92cb421f09b3694293491b4bcb558ef3e23a70250d20374a3b817acf25",
+      "after": "27837193214aebd153ed99eb3b4a149a6de24dafba63533f4dca30eb34a97a6b"
+    },
+    {
+      "path": "scripts/unixnu/bootimg.py",
+      "before": "dbf353a7c01b6b4fe36154bf41d09c79c40ee8d98fb1d58d2af32d21bc56cc7b",
+      "after": "298291234c9949d7e4acda91137899088f0f5757cab666decc6aa99e163a93ca"
+    },
+    {
+      "path": "scripts/unixnu/kernel.py",
+      "before": "e977ec70bc5cfb98210956f74223eb88512e193226d69ae89d7d8d446bfaa5e0",
+      "after": "b6e1b80c79218ae5a4af84fd0634d4c7fa4051ada3ef9a7e4f5c2719d201599d"
+    },
+    {
+      "path": "scripts/unixnu/payload.py",
+      "before": "07acbe3095140d1191290b154809419df1175264dff71309562d6b32bf5c7e2c",
+      "after": "cb9b2e728ca761c414c821f833f818a3de45d6d4b4e8531dcfe425957afa2dbe"
+    }
+  ]
+}
