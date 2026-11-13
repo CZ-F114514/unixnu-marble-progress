@@ -1,5 +1,7 @@
 # 复现指南
 
+[English](REPRODUCE.md) | **简体中文** | [首页](../README.zh-CN.md)
+
 ## 1. 不依赖手机的自包含检查
 
 在 Linux/WSL 的本仓库根目录运行。需要 Bash、Python3、支持 ASan/UBSan 的 Clang（本次主机实际使用21）。不需要 Apple 文件、root 权限、手机或网络。

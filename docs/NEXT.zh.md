@@ -1,5 +1,7 @@
 # 下一步
 
+[English](NEXT.md) | **简体中文** | [首页](../README.zh-CN.md)
+
 1. **补齐观察器证据。** 记录失败票据、线程和原因；区分代际失配/槽覆盖/重复返回。保留后段非零返回及完整有界路径，不只增大预算。按动态OID名称/handler和persona operation追踪原始失败语义，不造假成功。
 2. **整理载体复现。** 将仍在本地的固件RAM驱动、APRIORI、DT/BootShim及CRC绑定改动整理为不含私有资源的独立增量，并在干净环境重建。当前公开补丁只覆盖菜单/宿主/board内核诊断部分。
 3. **正常服务环境。** 当前176MiB恢复根只有少量服务plist，不能提供正常SpringBoard/backboardd环境。接入匹配的SystemOS，并准备RAM可写Data/var/devfs，逐个验证原版launchd子服务、Mach/XPC bootstrap、信号和线程语义。

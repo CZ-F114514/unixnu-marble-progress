@@ -8,8 +8,13 @@
     },
     {
       "path": ".gitignore",
-      "bytes": 512,
-      "sha256": "32a211cedcbb6b93e464f00cf0d6500a1070cd4a92be4c77ef47a284232b8067"
+      "bytes": 548,
+      "sha256": "796a6df77939dc60d600c51db4604a532e70a7cffb4c8d465937202c815f021d"
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "bytes": 2060,
+      "sha256": "8f288cc0a7213139c1c8e3ecf9ee5e7a0ecb2163337a57ceee203e74f0a12064"
     },
     {
       "path": "LICENSE",
@@ -33,8 +38,13 @@
     },
     {
       "path": "README.md",
-      "bytes": 2233,
-      "sha256": "e2152ded72884250645a7e1010eee63ec72c236c7cdb145f0753b64ed85143dd"
+      "bytes": 3558,
+      "sha256": "1c5b82c78fe53c0d33d816e10ce33504576704013e546e849e25a6217f86af98"
+    },
+    {
+      "path": "README.zh-CN.md",
+      "bytes": 2335,
+      "sha256": "66fe299d72c67da870e58db3aeaed459a50e59fa36cd690f011c2428ec60c6de"
     },
     {
       "path": "dependencies.json",
@@ -42,29 +52,54 @@
       "sha256": "821bd57d63319052f5b0154bd9f62dce29d4bd9900e4dc2551904c2f46e013bb"
     },
     {
+      "path": "docs/DEVICE-TEST.md",
+      "bytes": 3090,
+      "sha256": "3ddcc6fd5ccfa6ecbf2898e975fe73c28d04f3afb25a5294f02c5188e25b7bad"
+    },
+    {
       "path": "docs/DEVICE-TEST.zh.md",
-      "bytes": 2436,
-      "sha256": "908f28cfebbf65a86d987fe4ca5390de4a6f8d846615cc7671ec67a70c1bc27d"
+      "bytes": 2513,
+      "sha256": "94045effb0230c18deb11be5cfe6015b6ce6a6ba359a9f1607d9f108e9cdf84c"
+    },
+    {
+      "path": "docs/NEXT.md",
+      "bytes": 1944,
+      "sha256": "55c316d0b0f4796660c04918cc66626be775b607fb49e6fa79b593ed2a496719"
     },
     {
       "path": "docs/NEXT.zh.md",
-      "bytes": 1461,
-      "sha256": "4206e0560796d45973dadfce93919329e2d811b3f5d294dd785b801e7c95f337"
+      "bytes": 1531,
+      "sha256": "4e6c0f6cf42508df3984659995a4bec9b3fe2055845f82eb4717a9f37c2d1ac8"
+    },
+    {
+      "path": "docs/PROGRESS.md",
+      "bytes": 3859,
+      "sha256": "c0b909921db1afb5fbd4946a50e2aa5b90b6e67f442360bbbd7b03e500959839"
     },
     {
       "path": "docs/PROGRESS.zh.md",
-      "bytes": 2916,
-      "sha256": "5d67187b06ed74cd9823ce49b68afef4494ea18ac6691090418e07a23406d93f"
+      "bytes": 2990,
+      "sha256": "e17d9e97a8dd99c1854c85d7a5d6500127204176ef8a3a9ef5bd902a5dfd448c"
+    },
+    {
+      "path": "docs/PUBLICATION.md",
+      "bytes": 1954,
+      "sha256": "910cd007b47bb9378b8ad57009e3d71a7b334a99795fb68c526f3b1b5a89ed9b"
     },
     {
       "path": "docs/PUBLICATION.zh.md",
-      "bytes": 1542,
-      "sha256": "09307c876def902d2aa059e6c8490974dcf8b3d422c11d41c2eac5f163200bf2"
+      "bytes": 1733,
+      "sha256": "77ef2067750da182b0de0b27bdf06e9a73bcfd100f060965beb3bfdbf90fcbf9"
+    },
+    {
+      "path": "docs/REPRODUCE.md",
+      "bytes": 6656,
+      "sha256": "9ae909ce20337ee814c4dfb2ba0ce484707f04cb0f1020020699b7040bea9cd5"
     },
     {
       "path": "docs/REPRODUCE.zh.md",
-      "bytes": 5638,
-      "sha256": "4f91a6f975a97ed34962ee7efa0dc5e187f81d5319387d1a7cade607ebab629a"
+      "bytes": 5713,
+      "sha256": "d28bf38f87382a636cead8d5d668b0695e3323d6813fa5f19068ca2cb2acbce4"
     },
     {
       "path": "examples/marble-ram-apfs_defconfig",
@@ -130,6 +165,11 @@
       "path": "tools/run-host-checks.sh",
       "bytes": 801,
       "sha256": "3430c57d4e16e76c93e62f5ea54cb124927ea922c9b51ab39b6627b5de762b3e"
+    },
+    {
+      "path": "tools/update_manifest.py",
+      "bytes": 915,
+      "sha256": "f91e895c5036ec139dc03cea483189a805749fab89621bc2b97d67070cb6d798"
     },
     {
       "path": "tools/verify_manifest.py",

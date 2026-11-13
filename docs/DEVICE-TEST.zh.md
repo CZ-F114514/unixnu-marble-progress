@@ -1,5 +1,7 @@
 # 最小实机步骤：只适用于另行复核过的候选
 
+[English](DEVICE-TEST.md) | **简体中文** | [首页](../README.zh-CN.md)
+
 此文档不自动操作设备。先读 REPRODUCE 的RAM载体集成缺口，不从本仓库直接生成或下载现成镜像。每轮由操作者物理回到小米原厂 FASTBOOT 图形界面；临时U-Boot的Fastboot端点不能替代。
 
 ## 启动前
